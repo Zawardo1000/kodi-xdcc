@@ -35,6 +35,9 @@ stesso repository (Add-on video → **Zawardo XDCC Direct**).
 - Locandine e trame: direttamente da TMDB, con la chiave delle impostazioni (senza chiave, solo i nomi dei file).
 - Con i bot: una richiesta alla volta, almeno 3 secondi tra una e l'altra; i salti ravvicinati diventano una
   richiesta sola. In pausa per più di 90 secondi il trasferimento si chiude e libera il posto del bot.
+- Nel menu, **Connessione IRC** dice se si è collegati e nel canale (o l'ultimo problema: espulsi, rifiutati,
+  connessione morta); selezionata, verifica davvero (server, canale, risposta del server). Una connessione morta
+  in silenzio (per esempio se cambia l'IP di casa) viene riconosciuta e rifatta da sola.
 
 ## Sviluppo
 

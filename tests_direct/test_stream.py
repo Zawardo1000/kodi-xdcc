@@ -274,6 +274,70 @@ def test_riaperto_dopo_che_il_servizio_ha_chiuso_tutto(monkeypatch):
     assert len(net.nicks) == 2 and len(net.sends()) == requests + 1
 
 
+def test_connessione_morta_in_silenzio(monkeypatch):
+    """L'IP di casa cambia: la connessione IRC non si chiude, semplicemente non arriva più niente. Il client se ne
+    accorge (PING senza risposta) e la dà per chiusa."""
+    monkeypatch.setattr(irc_module, "_QUIET", 0.3)
+    monkeypatch.setattr(irc_module, "_PONG_WAIT", 0.3)
+
+    async def run():
+        net, irc, stream = await _setup()
+        try:
+            async with irc.session():
+                await asyncio.sleep(0.5)
+                assert irc.connected  # il finto server risponde ai PING: la connessione resta
+                net.mute()
+                await asyncio.sleep(1.2)
+                return irc.connected, irc.last_error, irc.status()
+        finally:
+            await _cleanup(net, irc, stream)
+
+    connected, error, status = asyncio.run(run())
+    assert not connected and "morta" in error and not status["nel_canale"]
+
+
+def test_prima_di_chiedere_si_verifica_il_server(monkeypatch):
+    """Video aperto, la connessione IRC muore in silenzio, poi un salto: prima di chiedere al bot il servizio
+    verifica che il server risponda (PING), si ricollega e chiede: il video continua."""
+    monkeypatch.setattr(irc_module, "_ALIVE_AFTER", 0)
+    monkeypatch.setattr(irc_module, "_PING_TIMEOUT", 0.5)
+    monkeypatch.setattr(irc_module, "_RECONNECT_GAP", 0)
+
+    async def run():
+        net, irc, stream = await _setup()
+        try:
+            stream.start()
+            await _ready(stream)
+            net.mute()
+            assert await _read(stream, 40 * MB, MB) == content(40 * MB, MB)
+            return net, irc.status()
+        finally:
+            await _cleanup(net, irc, stream)
+
+    net, status = asyncio.run(run())
+    assert len(net.nicks) == 2 and status["nel_canale"]  # ricollegato
+    assert [pos for _, pos in net.resumes][-1] == 40 * MB
+
+
+def test_espulso_dal_canale_si_rientra(monkeypatch):
+    monkeypatch.setattr(irc_module, "_REJOIN_DELAY", 0.1)
+
+    async def run():
+        net, irc, stream = await _setup()
+        try:
+            async with irc.session():
+                net.kick("flood")
+                await asyncio.sleep(0.05)
+                out = irc.in_channel, irc.last_error
+                await asyncio.sleep(0.3)
+                return out, irc.in_channel
+        finally:
+            await _cleanup(net, irc, stream)
+
+    (out_after_kick, error), back = asyncio.run(run())
+    assert not out_after_kick and "espulso" in error and "flood" in error and back
+
+
 def test_nessuno_legge_il_bot_si_ferma():
     async def run():
         net, irc, stream = await _setup()
@@ -326,8 +390,8 @@ def test_coda_corta_si_aspetta():
             await _cleanup(net, irc, stream)
 
     net, bot, phases = asyncio.run(run())
-    assert bot == "AAA|A|01" and "In coda da AAA|A|01 (posizione 1)" in phases
-    assert not [r for r in net.requests if r[1] == "AAA|A|02"]
+    assert net.transfers[0][0] == "AAA|A|01" and "In coda da AAA|A|01 (posizione 1)" in phases
+    assert net.requests[1][1:] != ("AAA|A|01", "XDCC REMOVE")  # rimasti in coda, non passati all'altro mirror
 
 
 def test_bot_che_non_riparte_dal_punto_chiesto(monkeypatch):

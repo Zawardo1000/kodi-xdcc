@@ -32,10 +32,13 @@ FILM = {"id": "AAA:Hellfire.2026.mkv", "titolo": "Hellfire 2026 · 1,6 GB", "nom
         "dimensione": 1_700_000_000, "giorno": "oggi", "stagione": None, "episodio": None}
 
 
-def test_menu(addon):
+def test_menu(addon, monkeypatch):
+    monkeypatch.setattr(addon, "client", lambda: FakeApi(
+        irc_status={"collegato": True, "nel_canale": True, "nick": "giulia", "canale": "#c"}, prefetch={"ok": True}))
     addon.router("")
     labels = [i[1].label for i in plugin("addDirectoryItems")[0][1][1]]
-    assert labels == ["Film · novità", "Serie · novità", "Cerca un film", "Cerca una serie"]
+    assert labels == ["Film · novità", "Serie · novità", "Cerca un film", "Cerca una serie",
+                      "Connessione IRC: collegato come giulia in #c · [I]verifica[/I]"]
     fake_kodi.settings["canale"] = ""
     addon.router("")
     items = plugin("addDirectoryItems")[1][1][1]
@@ -158,3 +161,17 @@ def test_nome_del_dispositivo_per_telegram(addon):
     fake_kodi.labels["System.FriendlyName"] = "Kodi"  # nome predefinito di Kodi: non dice niente
     fake_kodi.settings["dispositivo"] = ""
     assert addon.device_label() == f"Kodi Direct · Android · {code}"
+
+
+def test_verifica_irc(addon, monkeypatch):
+    api = FakeApi(irc_status=[{"collegato": False, "nel_canale": False, "errore": "ingresso nel canale #c rifiutato: "
+                                                                                  "Cannot join channel (+b)"},
+                              {"collegato": True, "nel_canale": True, "nick": "giulia", "canale": "#c",
+                               "server": "irc.test:6697", "sentito_da": 3}])
+    monkeypatch.setattr(addon, "client", lambda: api)
+    addon.router("?azione=irc")
+    assert ("irc_status", True) in api.requests
+    assert any(c[0] == "ok" and "Non collegato" in c[1] and "(+b)" in c[1] for c in fake_kodi.calls)
+    fake_kodi.calls.clear()
+    addon.router("?azione=irc")
+    assert any(c[0] == "ok" and "come [B]giulia[/B]" in c[1] and "3 s fa" in c[1] for c in fake_kodi.calls)

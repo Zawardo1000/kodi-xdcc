@@ -51,9 +51,10 @@ class ServiceApi:
         self.token = token
         self.timeout = timeout
 
-    def get(self, path, **params):
+    def get(self, path, timeout=None, **params):
         url = self.base + path + ("?" + urllib.parse.urlencode(params) if params else "")
-        return _get(url, {"X-Token": self.token}, self.timeout, "Il servizio dell'addon non risponde: riavvia Kodi")
+        return _get(url, {"X-Token": self.token}, timeout or self.timeout,
+                    "Il servizio dell'addon non risponde: riavvia Kodi")
 
     def latest_films(self):
         return self.get("/novita", tipo="film")["film"]
@@ -76,6 +77,10 @@ class ServiceApi:
 
     def cancel(self, job):
         return self.get("/annulla", lavoro=job)
+
+    def irc_status(self, test=False):
+        """Stato della connessione IRC; test=True: il servizio si collega davvero e verifica (fino a ~1 minuto)."""
+        return self.get("/irc", timeout=150 if test else None, prova="1" if test else "0")
 
     def prefetch(self):
         """Il servizio prepara novità e schede in sottofondo (risponde subito)."""

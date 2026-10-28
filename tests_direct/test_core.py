@@ -200,6 +200,25 @@ def test_connessione_chiusa_mentre_aspetta():
     assert events[:2] == ["attach", "detach"]
 
 
+def test_stato_e_verifica_di_irc(fake_sites):
+    async def run():
+        net = await FakeNetwork(8 * st.MB, filename=FILM).start()
+        core = core_module.Core(lambda: settings(server_irc=f"127.0.0.1:{net.port}"))
+        await core.start(ports=(0,))
+        try:
+            before = await core.api("irc", {"prova": "0"})  # non si collega per questo
+            tested = await core.api("irc", {"prova": "1"})  # scelto dalla persona: si collega e verifica
+            return before, tested, net
+        finally:
+            await core.close()
+            await net.close()
+
+    before, tested, net = asyncio.run(run())
+    assert not before["collegato"] and not before["provato"]
+    assert tested["nel_canale"] and tested["nick"] == "giulia" and tested["canale"] == "#canale" and tested["provato"]
+    assert net.nicks == ["giulia"]
+
+
 def test_senza_impostazioni_lo_dice():
     async def run():
         core = core_module.Core(lambda: {"nick": "giulia"})

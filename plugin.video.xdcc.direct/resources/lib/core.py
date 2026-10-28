@@ -233,6 +233,8 @@ class Core:
     async def api(self, name, params):
         if name == "stato":
             return self.status(params.get("lavoro", ""))
+        if name == "irc":
+            return await self.irc_status(params.get("prova") == "1")
         if name == "annulla":
             return {"annullato": await self.cancel(params.get("lavoro", ""))}
         config = self.config()
@@ -277,6 +279,26 @@ class Core:
                     await provider.add_info(items, entries, wait=60)
         except (ApiError, OSError) as e:
             logger.info(f"liste non preparate: {getattr(e, 'message', type(e).__name__)}")
+
+    async def irc_status(self, test):
+        """Stato della connessione IRC per il menu; con test=True (scelto dalla persona) ci si collega davvero:
+        server, canale e un PING."""
+        if test:
+            config = self.config()
+            irc, _ = self._irc_for(config)
+            try:
+                async with irc.session():
+                    alive = await irc.check_alive(timeout=10)
+                    if not alive:
+                        await irc.ensure_connected()
+                        alive = await irc.check_alive(timeout=10)
+            except IrcError as e:
+                irc.last_error = irc.last_error or str(e)
+        elif self._irc is None:
+            return {"collegato": False, "nel_canale": False, "errore": "", "provato": False}
+        status = self._irc.status()
+        status["provato"] = test
+        return status
 
     def stream_of(self, sid):
         return self.stream if self.stream and self.stream.sid == sid and not self.stream.closed else None

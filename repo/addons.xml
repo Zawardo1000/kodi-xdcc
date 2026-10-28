@@ -22,7 +22,7 @@
         </assets>
     </extension>
 </addon>
-<addon id="plugin.video.xdcc.direct" name="Zawardo XDCC Direct" version="0.1.4" provider-name="zawardo">
+<addon id="plugin.video.xdcc.direct" name="Zawardo XDCC Direct" version="0.1.5" provider-name="zawardo">
     <requires>
         <import addon="xbmc.python" version="3.0.1"/>
     </requires>
@@ -37,7 +37,8 @@
         <description lang="en_GB">Latest additions, search and streaming of single video files from XDCC bots, straight from Kodi: nothing is saved, only a little video is kept in memory. Lists page, IRC server and channel go in the settings.</description>
         <platform>all</platform>
         <license>Uso privato</license>
-        <news>0.1.4: prima di aprire il video inizio e fine del file in RAM e IRC collegato (la ripresa non aspetta più troppo); novità preparate mentre si sceglie dal menu.
+        <news>0.1.5: si accorge di una connessione IRC morta in silenzio (es. cambio di IP) e si ricollega da solo; nel menu «Connessione IRC» con lo stato e la verifica.
+0.1.4: prima di aprire il video inizio e fine del file in RAM e IRC collegato (la ripresa non aspetta più troppo); novità preparate mentre si sceglie dal menu.
 0.1.3: su Telegram il Kodi collegato ha sistema e un codice (più TV si distinguono).
 0.1.2: riprendere un video da dove era rimasto non torna più alla lista.
 0.1.1: «Compila da Telegram» mette anche la chiave TMDB; locandine e trame sempre da TMDB.

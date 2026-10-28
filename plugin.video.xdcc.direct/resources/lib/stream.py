@@ -57,7 +57,7 @@ _IDLE_POLL = 5  # ogni quanto si controlla se nessuno guarda più
 _TRIM_STEP = 2 * MB
 _CHUNK = 256 * 1024
 _CONNECT_TIMEOUT = 30
-_DATA_TIMEOUT = 60  # il bot non manda niente (e non siamo noi a frenare)
+_DATA_TIMEOUT = 20  # il bot non manda niente (e non siamo noi a frenare): prima che Kodi rinunci
 _PROBE_TIMEOUT = 20  # prima risposta di un bot (di solito 1-3 secondi)
 _SENDING_TIMEOUT = 60  # da "Sending you pack" all'offerta DCC
 _QUEUE_TIMEOUT = 3600
@@ -210,8 +210,6 @@ class Requester:
             logger.info(f"XDCC: richiesta a {bot} ({pack})")
             report(f"Richiesta a {bot}")
             got = await wait(lambda: r.status != "attesa", _PROBE_TIMEOUT)
-            if not got and r.status == "invio":
-                got = await wait(lambda: r.status != "invio", _SENDING_TIMEOUT)
             if not got and r.status == "coda":
                 if not stay and r.position > _QUEUE_STAY:
                     return r.position
@@ -220,6 +218,9 @@ class Requester:
                     where = f"posizione {r.position}" if r.position < 999 else "posizione non detta"
                     report(f"In coda da {bot} ({where})")
                     got = await wait(lambda: r.status != "coda", 30)
+            # "Ti sto inviando..." (anche dopo la coda): l'offerta DCC arriva qualche secondo dopo
+            if not got and r.status == "invio":
+                got = await wait(lambda: r.status != "invio", _SENDING_TIMEOUT)
             if got:
                 return bot, r.offer.result()
             return r.note or "non risponde"
@@ -514,10 +515,12 @@ class Stream:
             if released and released == self.bot:
                 await asyncio.sleep(max(0.0, when + BOT_SETTLE - time.monotonic()))
             avoid = {bot for bot, count in self._failures.items() if count >= 2}
-            if not self.requester.irc.connected:  # caduta nel frattempo: ci si ricollega prima di chiedere
+            irc = self.requester.irc
+            # connessione caduta, morta in silenzio o fuori dal canale: ci si ricollega prima di chiedere
+            if not await irc.check_alive() or not irc.in_channel:
                 self.phase = "Collegamento a IRC…"
                 self._notify()
-                await self.requester.irc.ensure_connected()
+                await irc.ensure_connected()
             self.phase = "Richiesta al bot…"
             self._notify()
             bot, offer = await self.requester.acquire(self.sources, prefer=self.bot, report=self._report,

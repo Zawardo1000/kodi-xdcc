@@ -47,6 +47,7 @@ class FakeNetwork:
         self.notice_delay = notice_delay  # come i bot veri: si accorgono tardi che chi riceve ha chiuso
         self._busy = set()  # bot con un trasferimento ancora in corso (per loro)
         self.duplicates = 0  # richieste arrivate mentre il bot credeva di stare ancora inviando
+        self._conns = []  # connessioni IRC aperte: {"writer", "nick", "muted"}
 
     async def start(self):
         self.server = await asyncio.start_server(self._client, "127.0.0.1", 0)
@@ -58,14 +59,28 @@ class FakeNetwork:
         for task in self._tasks:
             task.cancel()
 
+    def mute(self):
+        """Le connessioni aperte diventano mute (come quando l'IP di casa cambia): niente più risposte, né PONG.
+        Le connessioni nuove funzionano."""
+        for conn in self._conns:
+            conn["muted"] = True
+
+    def kick(self, reason="flood"):
+        for conn in self._conns:
+            if not conn["muted"]:
+                conn["writer"].write(f":op!o@h KICK #canale {conn['nick']} :{reason}\r\n".encode())
+
     def sends(self):
         return [r for r in self.requests if r[2].startswith("XDCC SEND")]
 
     async def _client(self, reader, writer):
         nick, user, registered = None, False, False
+        conn = {"writer": writer, "nick": None, "muted": False}
+        self._conns.append(conn)
 
         def send(line):
-            writer.write((line + "\r\n").encode())
+            if not conn["muted"]:
+                writer.write((line + "\r\n").encode())
 
         try:
             while True:
@@ -73,9 +88,13 @@ class FakeNetwork:
                 if not raw:
                     break
                 line = raw.decode().rstrip("\r\n")
+                if conn["muted"]:
+                    continue
                 self.lines.append(line)
                 command, _, rest = line.partition(" ")
-                if command == "NICK":
+                if command == "PING":
+                    send(f":srv PONG srv :{rest.lstrip(':')}")
+                elif command == "NICK":
                     wanted = rest.strip().lstrip(":")
                     if wanted in self.taken:
                         send(f":srv 433 {nick or '*'} {wanted} :Nickname is already in use")
@@ -97,6 +116,7 @@ class FakeNetwork:
                     self._privmsg(send, nick, target, text)
                 elif command == "QUIT":
                     break
+                conn["nick"] = nick
                 if nick and user and not registered:
                     registered = True
                     self.nicks.append(nick)

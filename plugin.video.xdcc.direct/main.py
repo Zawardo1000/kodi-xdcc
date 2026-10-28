@@ -12,6 +12,7 @@ Percorsi (plugin://plugin.video.xdcc.direct/?azione=...):
 - guarda&id=...                fa partire lo streaming e apre il video appena può
 - collega                      compila pagina, server, canale e chiave TMDB da Telegram (chi è registrato sul bot)
 - impostazioni                 apre le impostazioni
+- irc                          verifica la connessione IRC (server, canale, risposta del server) e mostra com'è
 
 Con la chiave di Telegram, all'apertura (una volta al giorno) rilegge dal server pagina, server, canale e chiave
 TMDB: se cambiano, si aggiornano da soli. Le schede (locandine, trame) il servizio le chiede direttamente a TMDB. All'apertura controlla anche se c'è una versione più nuova dell'addon.
@@ -252,12 +253,48 @@ def main_menu():
         end([folder("Film · novità", azione="film_novita"),
              folder("Serie · novità", azione="serie_novita"),
              folder("Cerca un film", azione="cerca", tipo="film"),
-             folder("Cerca una serie", azione="cerca", tipo="serie")], "files")
+             folder("Cerca una serie", azione="cerca", tipo="serie"),
+             folder(irc_label(), azione="irc")], "files")
         try:
             client().prefetch()  # le novità si preparano mentre si sceglie
         except ApiError:
             pass
     check_update()  # dopo il menu, che intanto è già sullo schermo
+
+
+def irc_label():
+    """Voce del menu con lo stato della connessione IRC (chiesto al servizio, che non si collega per questo)."""
+    try:
+        status = client().irc_status()
+    except ApiError:
+        return "Connessione IRC: servizio non attivo"
+    if status.get("nel_canale"):
+        return f"Connessione IRC: collegato come {status['nick']} in {status['canale']} · [I]verifica[/I]"
+    if status.get("errore"):
+        return f"Connessione IRC: [COLOR orange]{status['errore']}[/COLOR] · [I]verifica[/I]"
+    return "Connessione IRC: non collegato (si collega al primo video) · [I]verifica[/I]"
+
+
+def check_irc():
+    """Verifica scelta dalla persona: il servizio si collega (se serve), entra nel canale e manda un PING."""
+    dialog = xbmcgui.DialogProgress()
+    dialog.create(TITLE, "Verifico la connessione IRC…")
+    try:
+        status = client().irc_status(True)
+    except ApiError as e:
+        status = {"errore": e.message}
+    finally:
+        dialog.close()
+    log(f"verifica IRC: {status}")
+    if status.get("nel_canale"):
+        heard = status.get("sentito_da")
+        text = (f"Collegato a {status['server']} come [B]{status['nick']}[/B], nel canale [B]{status['canale']}[/B].\n"
+                "Il server risponde" + (f" (ultima risposta {heard} s fa)." if heard is not None else "."))
+    else:
+        text = ("[B]Non collegato[/B]" + (f": {status['errore']}" if status.get("errore") else "") + "\n\n"
+                "Se dice «bannato» o «rifiutato», il server o il canale non ci vogliono: controlla server e canale "
+                "nelle impostazioni, o riprova più tardi.")
+    xbmcgui.Dialog().ok(TITLE, lines(text))
 
 
 def show_folder(show):
@@ -408,9 +445,11 @@ def router(paramstring):
     if action == "guarda":
         watch(params["id"])
         return
-    if action in ("collega", "impostazioni"):
+    if action in ("collega", "impostazioni", "irc"):
         if action == "collega":
             pair()
+        elif action == "irc":
+            check_irc()
         else:
             ADDON.openSettings()
         if HANDLE >= 0:  # dal menu (cartella); dalle impostazioni arriva senza handle
