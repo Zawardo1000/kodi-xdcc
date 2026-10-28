@@ -1,5 +1,5 @@
 """
-Addon Kodi di XDCC: menu, liste e riproduzione. Tutta la logica sta sul server (API del bot LVI, /xdcc/api/...):
+Addon Kodi Zawardo XDCC: menu, liste e riproduzione. Tutta la logica sta sul server (API del bot LVI, /xdcc/api/...):
 qui solo l'interfaccia.
 
 Percorsi (plugin://plugin.video.xdcc/?azione=...):
@@ -13,23 +13,31 @@ Percorsi (plugin://plugin.video.xdcc/?azione=...):
 - collega                      abbinamento con Telegram (anche dal pulsante nelle impostazioni)
 
 Locandina, sfondo, trama, anno e voto arrivano dal server (schede TMDB) quando le ha: senza, solo il nome del file.
+All'apertura (menu principale) controlla se il repository ha una versione più nuova dell'addon (check_update).
 """
 
+import re
 import sys
 import time
+import urllib.request
 from urllib.parse import parse_qsl, urlencode
 
 import xbmc
 import xbmcaddon
 import xbmcgui
 import xbmcplugin
+import xbmcvfs
 
-from resources.lib.api import ApiError, XdccApi
+from resources.lib.api import USER_AGENT, ApiError, XdccApi
 
 ADDON = xbmcaddon.Addon()
 BASE = sys.argv[0] if sys.argv else "plugin://plugin.video.xdcc/"
 HANDLE = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].lstrip("-").isdigit() else -1
-TITLE = "XDCC"
+TITLE = "Zawardo XDCC"
+REPOSITORY = "repository.zawardo"
+# indice del repository se il suo addon.xml non si legge (es. addon installato da zip senza repository)
+UPDATE_INDEX = "https://raw.githubusercontent.com/Zawardo1000/kodi-xdcc/main/repo/addons.xml"
+_UPDATE_EVERY = 600  # secondi: tornando al menu principale non si ricontrolla subito
 DEFAULT_SERVER = "https://xdcc.zawardo.duckdns.org"
 _MIME = {"mkv": "video/x-matroska", "avi": "video/x-msvideo", "mp4": "video/mp4", "m4v": "video/mp4",
          "ts": "video/mp2t", "mpg": "video/mpeg", "mpeg": "video/mpeg", "wmv": "video/x-ms-wmv",
@@ -121,6 +129,43 @@ def end(items, content="videos"):
     xbmcplugin.endOfDirectory(HANDLE, cacheToDisc=False)
 
 
+def _version(text):
+    return tuple(int(n) for n in re.findall(r"\d+", text)[:3])
+
+
+def _update_index():
+    """Indirizzo dell'indice (addons.xml) scritto nel repository installato: segue il repository se cambia posto."""
+    try:
+        path = xbmcvfs.translatePath(f"special://home/addons/{REPOSITORY}/addon.xml")
+        with open(path, encoding="utf-8") as f:
+            return re.search(r"<info[^>]*>([^<]+)</info>", f.read())[1].strip()
+    except (OSError, TypeError):
+        return UPDATE_INDEX
+
+
+def check_update():
+    """Versione più nuova nel repository: Kodi aggiorna i repository e, con l'aggiornamento automatico (scelta
+    predefinita di Kodi), la installa subito invece che al suo controllo di ogni 24 ore. Una richiesta piccola
+    (l'indice); senza rete o se qualcosa va storto, niente."""
+    home = xbmcgui.Window(10000)
+    last = home.getProperty("xdcc.aggiornamenti")
+    if last and time.time() - float(last) < _UPDATE_EVERY:
+        return
+    home.setProperty("xdcc.aggiornamenti", str(time.time()))
+    try:
+        request = urllib.request.Request(_update_index(), headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(request, timeout=5) as response:
+            index = response.read().decode("utf-8")
+    except (OSError, ValueError) as e:
+        xbmc.log(f"[{TITLE}] controllo aggiornamenti non riuscito: {e}", xbmc.LOGINFO)
+        return
+    tag = re.search(r'<addon\s[^>]*\bid="plugin\.video\.xdcc"[^>]*>', index)
+    found = re.search(r'\bversion="([^"]+)"', tag[0]) if tag else None
+    if found and _version(found[1]) > _version(ADDON.getAddonInfo("version")):
+        xbmcgui.Dialog().notification(TITLE, f"Aggiornamento alla versione {found[1]}…")
+        xbmc.executebuiltin("UpdateAddonRepos")
+
+
 def main_menu():
     items = []
     if not ADDON.getSetting("chiave"):
@@ -131,6 +176,7 @@ def main_menu():
               folder("Cerca una serie", azione="cerca", tipo="serie"),
               folder("Già sul server", azione="server")]
     end(items, "files")
+    check_update()  # dopo il menu, che intanto è già sullo schermo
 
 
 def show_folder(show):

@@ -9,10 +9,10 @@ niente: ogni richiesta viene rifiutata.
 Una volta sola, il repository (poi Kodi aggiorna da solo l'addon):
 
 1. Kodi → Impostazioni → Sistema → Add-on: attiva **Sorgenti sconosciute**.
-2. Scarica [`repository.zawardo-1.0.1.zip`](https://raw.githubusercontent.com/Zawardo1000/kodi-xdcc/main/repo/repository.zawardo/repository.zawardo-1.0.1.zip) e copialo sul
+2. Scarica [`repository.zawardo-1.0.2.zip`](https://raw.githubusercontent.com/Zawardo1000/kodi-xdcc/main/repo/repository.zawardo/repository.zawardo-1.0.2.zip) e copialo sul
    dispositivo (chiavetta, cartella condivisa, ...).
 3. Kodi → Add-on → icona del pacchetto → **Installa da file zip** → lo zip.
-4. **Installa da repository** → Repository zawardo → Add-on video → **XDCC** → Installa.
+4. **Installa da repository** → Repository zawardo → Add-on video → **Zawardo XDCC** → Installa.
 
 ## Collegare il server (una volta per dispositivo)
 

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="repository.zawardo" name="Repository zawardo" version="1.0.1" provider-name="zawardo">
+<addon id="repository.zawardo" name="Repository zawardo" version="1.0.2" provider-name="zawardo">
     <extension point="xbmc.addon.repository" name="Repository zawardo">
         <dir>
             <info compressed="false">https://raw.githubusercontent.com/Zawardo1000/kodi-xdcc/main/repo/addons.xml</info>
@@ -14,5 +14,8 @@
         <description lang="it_IT">Installalo una volta: Kodi aggiornerà da solo gli addon di questo repository.</description>
         <description lang="en_GB">Install it once: Kodi will keep the add-ons from this repository up to date.</description>
         <platform>all</platform>
+        <assets>
+            <icon>icon.png</icon>
+        </assets>
     </extension>
 </addon>

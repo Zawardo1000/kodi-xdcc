@@ -2,6 +2,7 @@
 
   repo/addons.xml, repo/addons.xml.md5            indice degli addon e suo controllo
   repo/<id>/<id>-<versione>.zip (+ .sha256)       gli addon, con l'impronta che Kodi verifica
+  repo/<id>/<icona, ...>                          le immagini di <assets>: Kodi le mostra prima di installare
 
 Addon: plugin.video.xdcc e repository.zawardo (quello da installare una volta a mano, poi Kodi aggiorna da solo).
 La versione è quella di ogni addon.xml: alzala a ogni modifica, se no Kodi non aggiorna. Poi commit e push.
@@ -9,6 +10,7 @@ La versione è quella di ogni addon.xml: alzala a ogni modifica, se no Kodi non 
 
 import hashlib
 import re
+import shutil
 import zipfile
 from pathlib import Path
 
@@ -44,7 +46,15 @@ def build_zip(addon_id: str) -> Path:
             name = path.relative_to(ROOT).as_posix()
             archive.writestr(_entry(name, path.is_dir()), b"" if path.is_dir() else path.read_bytes())
     out.with_name(out.name + ".sha256").write_text(hashlib.sha256(out.read_bytes()).hexdigest(), encoding="utf-8")
+    for asset in _assets((source / "addon.xml").read_text(encoding="utf-8")):
+        (out.parent / asset).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source / asset, out.parent / asset)
     return out
+
+
+def _assets(addon_xml: str) -> list[str]:
+    block = re.search(r"<assets>(.*?)</assets>", addon_xml, re.S)
+    return re.findall(r"<(?:icon|fanart|banner|clearlogo|screenshot)>([^<]+)</", block[1]) if block else []
 
 
 def build() -> list[Path]:

@@ -5,6 +5,9 @@ import types
 
 calls = []  # (funzione, argomenti) di xbmcplugin e dei dialoghi
 settings = {}
+info = {"id": "plugin.video.xdcc", "version": "0.3.0"}
+window = {}  # proprietà della finestra principale (Window(10000))
+home = {"path": ""}  # cartella vera al posto di special://home/
 answers = {"input": "", "yesno": False, "canceled": []}  # canceled: iscanceled() a ogni giro (poi False)
 
 
@@ -13,6 +16,9 @@ def reset():
     settings.clear()
     settings.update({"server": "https://server.test", "chiave": "", "dispositivo": "Kodi prova"})
     answers.update({"input": "", "yesno": False, "canceled": []})
+    info.update({"version": "0.3.0"})
+    window.clear()
+    home["path"] = ""
 
 
 class _Tag:
@@ -82,7 +88,21 @@ class Monitor:
         return False
 
 
+class Window:
+    def __init__(self, window_id):
+        pass
+
+    def getProperty(self, key):
+        return window.get(key, "")
+
+    def setProperty(self, key, value):
+        window[key] = value
+
+
 class Addon:
+    def getAddonInfo(self, key):
+        return info.get(key, "")
+
     def getSetting(self, key):
         return settings.get(key, "")
 
@@ -99,12 +119,17 @@ def install():
     xbmc = types.ModuleType("xbmc")
     xbmc.Monitor = Monitor
     xbmc.executebuiltin = lambda command: calls.append(("builtin", command))
+    xbmc.log = lambda message, level=0: calls.append(("log", message))
+    xbmc.LOGINFO, xbmc.LOGWARNING = 1, 2
+    xbmcvfs = types.ModuleType("xbmcvfs")
+    xbmcvfs.translatePath = lambda path: path.replace("special://home/", home["path"])
     xbmcaddon = types.ModuleType("xbmcaddon")
     xbmcaddon.Addon = Addon
     xbmcgui = types.ModuleType("xbmcgui")
-    xbmcgui.ListItem, xbmcgui.Dialog, xbmcgui.DialogProgress = ListItem, Dialog, DialogProgress
+    xbmcgui.ListItem, xbmcgui.Dialog, xbmcgui.DialogProgress, xbmcgui.Window = ListItem, Dialog, DialogProgress, Window
     xbmcgui.NOTIFICATION_INFO, xbmcgui.NOTIFICATION_ERROR = "info", "error"
     xbmcplugin = types.ModuleType("xbmcplugin")
     for name in ("setContent", "addDirectoryItems", "endOfDirectory", "setResolvedUrl"):
         setattr(xbmcplugin, name, _plugin_call(name))
-    sys.modules.update({"xbmc": xbmc, "xbmcaddon": xbmcaddon, "xbmcgui": xbmcgui, "xbmcplugin": xbmcplugin})
+    sys.modules.update({"xbmc": xbmc, "xbmcaddon": xbmcaddon, "xbmcgui": xbmcgui, "xbmcplugin": xbmcplugin,
+                        "xbmcvfs": xbmcvfs})

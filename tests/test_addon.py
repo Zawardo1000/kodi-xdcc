@@ -132,3 +132,62 @@ def test_schede_tmdb(addon, monkeypatch):
     item = plugin("addDirectoryItems")[2][1][1][0][1]
     assert item.tag.info["title"] == "Pilota" and item.tag.info["tvshowtitle"] == "Sheriff Country"
     assert item.props["art"]["thumb"] == "https://img/e1.jpg" and item.props["art"]["poster"] == "https://img/s.jpg"
+
+
+class _Index:
+    """Risposta finta di urlopen: l'indice del repository."""
+
+    def __init__(self, version):
+        self.body = (f'<addons><addon id="plugin.video.xdcc" name="Zawardo XDCC" version="{version}" '
+                     'provider-name="zawardo"></addon></addons>').encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self):
+        return self.body
+
+
+def test_aggiornamento_all_apertura(addon, monkeypatch, tmp_path):
+    repo = tmp_path / "addons" / "repository.zawardo"
+    repo.mkdir(parents=True)
+    (repo / "addon.xml").write_text('<addon><extension><dir><info compressed="false">https://repo.test/addons.xml'
+                                    '</info></dir></extension></addon>', encoding="utf-8")
+    fake_kodi.home["path"] = str(tmp_path) + "/"
+    asked = []
+
+    def urlopen(request, timeout):
+        asked.append(request.full_url)
+        return _Index("0.10.0")  # 0.10 > 0.3: confronto per numeri, non per testo
+
+    monkeypatch.setattr(addon.urllib.request, "urlopen", urlopen)
+    fake_kodi.settings["chiave"] = "k"
+    addon.router("")
+    assert asked == ["https://repo.test/addons.xml"]  # l'indirizzo del repository installato
+    assert ("builtin", "UpdateAddonRepos") in fake_kodi.calls
+    assert ("notification", "Aggiornamento alla versione 0.10.0…") in fake_kodi.calls
+    addon.router("")  # di nuovo al menu poco dopo: niente secondo controllo
+    assert len(asked) == 1
+
+
+def test_niente_aggiornamento_se_e_gia_l_ultima(addon, monkeypatch):
+    fake_kodi.home["path"] = "/non/esiste/"
+    asked = []
+    monkeypatch.setattr(addon.urllib.request, "urlopen", lambda request, timeout: asked.append(request.full_url)
+                        or _Index("0.3.0"))
+    addon.router("")
+    assert asked == [addon.UPDATE_INDEX]  # repository non leggibile: l'indirizzo di riserva
+    assert not [c for c in fake_kodi.calls if c[0] == "builtin"]
+
+
+def test_aggiornamento_senza_rete(addon, monkeypatch):
+    def offline(request, timeout):
+        raise OSError("rete giù")
+
+    monkeypatch.setattr(addon.urllib.request, "urlopen", offline)
+    addon.router("")
+    assert plugin("addDirectoryItems")  # il menu c'è lo stesso
+    assert not [c for c in fake_kodi.calls if c[0] == "builtin"]
