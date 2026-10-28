@@ -16,6 +16,12 @@ In RAM:
   davanti. Oltre, si smette di leggere dal bot, che rallenta da solo (TCP): Kodi ha già la sua cache.
 In pausa da più di STALL_CLOSE secondi il trasferimento si chiude e libera il posto del bot; alla ripresa si
 richiede da dove serve. Video chiuso (nessuno legge da IDLE_STOP secondi): idem.
+
+Kodi legge con due connessioni: dopo un salto tiene aperta, ferma, quella di prima (per tornarci subito se salta
+indietro). Ogni lettura ha la sua posizione e il freno segue la più avanti tra quelle che leggono dal trasferimento.
+Il trasferimento è della lettura che l'ha chiesto finché riceve dati: un salto (lettura più nuova) lo prende
+subito, una lettura più vecchia (quella ferma, che intanto ha riempito il suo buffer) solo se l'altra è ferma da
+OWNER_IDLE secondi. Una lettura finisce quando Kodi chiude la connessione (detach).
 """
 
 import asyncio
@@ -42,6 +48,7 @@ SKIP_MAX = 16 * MB  # bot che non riparte dal byte chiesto: si scarta dall'inizi
 READY = 2 * MB  # prima di far partire Kodi
 DEBOUNCE = 0.6
 STALL_CLOSE = 90
+OWNER_IDLE = 2.0
 IDLE_STOP = 30
 _TRIM_STEP = 2 * MB
 _CHUNK = 256 * 1024
@@ -62,8 +69,8 @@ class StreamError(Exception):
     """Lo streaming non può continuare (messaggio da mostrare)."""
 
 
-class Superseded(Exception):
-    """Kodi ha aperto una lettura nuova (salto): quella vecchia finisce."""
+class ReaderGone(Exception):
+    """Kodi ha chiuso la connessione di questa lettura."""
 
 
 async def wait_event(event, timeout):
@@ -248,8 +255,9 @@ class Requester:
 
 
 class _Reader:
-    def __init__(self, gen):
-        self.gen = gen
+    def __init__(self, gen, pos):
+        self.gen, self.pos, self.gone = gen, pos, False
+        self.served = time.monotonic()  # ultimi dati dati a questa lettura (o apertura)
 
 
 class Stream:
@@ -268,7 +276,9 @@ class Stream:
         self.transfer_start = None  # inizio del trasferimento in corso (None: nessuno)
         self.received, self.speed = 0, 0.0
         self._speed_mark = (time.monotonic(), 0)
-        self.reader_pos, self.reader_gen, self.readers = 0, 0, 0
+        self._readers = set()  # letture aperte da Kodi
+        self._owner = None  # lettura per cui si è chiesto il trasferimento in corso
+        self._reader_gen = 0
         self.last_read = time.monotonic()
         self.target, self._pending, self._skip_until = 0, None, None
         self._failures = {}  # bot -> trasferimenti finiti senza dati di fila
@@ -293,6 +303,10 @@ class Stream:
     def status(self):
         return {"pronto": self.ready, "errore": self.error, "fase": self.phase, "ricevuti": self.received,
                 "totale": self.size or self.size_hint, "velocita": int(self.speed)}
+
+    @property
+    def readers(self):
+        return len(self._readers)
 
     def _notify(self):
         self._event.set()
@@ -321,39 +335,53 @@ class Stream:
         """pos è in RAM o sta per arrivare (dal trasferimento in corso o da quello richiesto)."""
         if self._lookup(pos, 1):
             return True
-        if self._transfer_running() and self.transfer_start <= pos <= max(self._buf_end(), self._skip_until or 0) + NEAR:
+        # dal trasferimento in corso arriva solo quello che viene dopo la finestra: la parte già scartata no
+        if self._transfer_running() and self.buf_start <= pos <= max(self._buf_end(), self._skip_until or 0) + NEAR:
             return True
         return self._pending is not None and self._pending <= pos <= self._pending + NEAR
 
     # --- lettura (da web.py) ---
 
     def attach(self, pos):
-        """Kodi apre una lettura da pos: diventa quella valida, le altre finiscono (Superseded)."""
-        self.reader_gen += 1
-        self.readers += 1
-        self.reader_pos, self.last_read = pos, time.monotonic()
+        """Kodi apre una lettura da pos (le altre aperte restano valide)."""
+        self._reader_gen += 1
+        reader = _Reader(self._reader_gen, pos)
+        self._readers.add(reader)
+        self.last_read = time.monotonic()
+        logger.info(f"XDCC: Kodi legge da {pos} ({len(self._readers)} letture aperte)")
         self._notify()
-        return _Reader(self.reader_gen)
+        return reader
 
     def detach(self, reader):
-        self.readers -= 1
+        """Kodi ha chiuso la connessione della lettura (anche mentre aspettava i dati)."""
+        reader.gone = True
+        self._readers.discard(reader)
         self.last_read = time.monotonic()
+        self._notify()
+
+    def _positions(self, low, high):
+        return [r.pos for r in self._readers if low <= r.pos <= high]
 
     async def read(self, reader, pos, n):
-        """Fino a n byte da pos, aspettando che arrivino (e chiedendoli al bot se non stanno arrivando)."""
+        """Fino a n byte da pos, aspettando che arrivino (e chiedendoli al bot se non stanno arrivando e il
+        trasferimento non serve a un'altra lettura: vedi all'inizio)."""
         while True:
             if self.closed:
                 raise StreamError("Streaming chiuso")
-            if reader.gen != self.reader_gen:
-                raise Superseded()
+            if reader.gone:
+                raise ReaderGone()
             if self.error:
                 raise StreamError(self.error)
-            self.reader_pos, self.last_read = pos, time.monotonic()
+            reader.pos, self.last_read = pos, time.monotonic()
             data = self._lookup(pos, n)
             if data:
+                reader.served = time.monotonic()
                 self._notify()  # chi aspetta spazio (il trasferimento frenato) riparte
                 return data
-            if not self._covered(pos):
+            owner = self._owner
+            if not self._covered(pos) and (owner is None or owner.gone or reader.gen >= owner.gen
+                                           or time.monotonic() - owner.served > OWNER_IDLE):
+                self._owner = reader
                 self.want(pos)
             await self._wait_change(1.0)
 
@@ -535,7 +563,8 @@ class Stream:
         """Aspetta che ci sia posto nella finestra (chi legge è andato avanti). False: pausa troppo lunga, o
         trasferimento da fermare."""
         while transfer_id == self._transfer_id and not self.closed:
-            anchor = self.reader_pos if self.transfer_start <= self.reader_pos <= pos + NEAR else self.transfer_start
+            readers = self._positions(self.buf_start, pos + NEAR)  # chi legge da questo trasferimento
+            anchor = max(readers) if readers else self.transfer_start
             if self._skip_until is not None:
                 anchor = max(anchor, self._skip_until)
             if pos - anchor < AHEAD_MAX:
@@ -559,7 +588,9 @@ class Stream:
         self.received += len(chunk)
         # finestra: BEHIND dietro chi legge, il resto si toglie (a passi, per non spostare memoria a ogni blocco)
         end = self._buf_end()
-        anchor = self.reader_pos if self.buf_start <= self.reader_pos <= end else end
+        readers = self._positions(self.buf_start, end)  # dietro la più indietro di chi legge nella finestra
+        anchor = min(readers) if readers else self.buf_start  # nessuno legge (video fermato): si tiene tutto, per
+        # riprendere dallo stesso punto senza richiedere (il trasferimento intanto è frenato)
         keep_from = max(self.buf_start, anchor - BEHIND, end - AHEAD_MAX - BEHIND)
         if keep_from - self.buf_start >= _TRIM_STEP:
             del self.buf[:keep_from - self.buf_start]

@@ -156,6 +156,50 @@ def test_guarda_e_salti_dal_server_locale(fake_sites):
     assert net.nicks == ["giulia"] and any(line == "JOIN #canale" for line in net.lines)
 
 
+def test_connessione_chiusa_mentre_aspetta():
+    """Kodi chiude la connessione (salto, stop) mentre la lettura aspetta i dati: la lettura finisce subito."""
+    import socket
+
+    from resources.lib.web import WebServer
+
+    events = []
+
+    class WaitingStream:
+        size = 1000
+
+        def attach(self, pos):
+            events.append("attach")
+            return object()
+
+        def detach(self, reader):
+            events.append("detach")
+
+        async def read(self, reader, pos, n):
+            await asyncio.sleep(30)  # i dati non arrivano
+
+    async def run():
+        web = WebServer("g", None, lambda sid: WaitingStream())
+        port = await web.start((0,))
+        loop = asyncio.get_event_loop()
+
+        def request():
+            with socket.create_connection(("127.0.0.1", port)) as sock:
+                sock.sendall(b"GET /v/g/s1/film.mkv HTTP/1.1\r\nRange: bytes=500-\r\n\r\n")
+                return sock.recv(1000)
+
+        head = await loop.run_in_executor(None, request)
+        for _ in range(50):
+            if "detach" in events:
+                break
+            await asyncio.sleep(0.02)
+        await web.close()
+        return head
+
+    head = asyncio.run(run())
+    assert head.startswith(b"HTTP/1.1 206") and b"Content-Range: bytes 500-999/1000" in head
+    assert events[:2] == ["attach", "detach"]
+
+
 def test_senza_impostazioni_lo_dice():
     async def run():
         core = core_module.Core(lambda: {"nick": "giulia"})

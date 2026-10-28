@@ -114,14 +114,17 @@ def test_salti_ravvicinati_una_sola_richiesta():
         try:
             stream.start()
             await _ready(stream)
-            superseded = []
-            for pos in (30 * MB, 40 * MB):  # avanti, avanti...
+            abandoned = []
+            for pos in (30 * MB, 40 * MB):  # avanti, avanti... (Kodi chiude la lettura vecchia a ogni salto)
+                if abandoned:
+                    stream.detach(abandoned[-1][0])
                 reader = stream.attach(pos)
-                superseded.append(asyncio.ensure_future(stream.read(reader, pos, 1000)))
+                abandoned.append((reader, asyncio.ensure_future(stream.read(reader, pos, 1000))))
                 await asyncio.sleep(0.01)
+            stream.detach(abandoned[-1][0])
             assert await _read(stream, 50 * MB, MB) == content(50 * MB, MB)  # ...si ferma qui
-            for task in superseded:
-                with pytest.raises(st.Superseded):
+            for _, task in abandoned:
+                with pytest.raises(st.ReaderGone):
                     await task
             return net
         finally:
@@ -130,6 +133,109 @@ def test_salti_ravvicinati_una_sola_richiesta():
     net = asyncio.run(run())
     assert [pos for _, pos in net.resumes] == [50 * MB]
     _check_gaps(net)
+
+
+def test_due_letture_insieme_come_nella_ripresa():
+    """Riprendendo un video Kodi legge l'inizio del file con una connessione e il punto di ripresa con un'altra:
+    la seconda non deve restare senza dati (il freno segue chi legge dal trasferimento, non l'ultima arrivata)."""
+    async def run():
+        net, irc, stream = await _setup()
+        try:
+            stream.start()
+            await _ready(stream)
+            head = stream.attach(0)
+            far = stream.attach(30 * MB)
+            pos_head, pos_far = 0, 30 * MB
+            for _ in range(24):  # 24 MB dal punto di ripresa, il doppio della finestra, con l'inizio letto in mezzo
+                data = await asyncio.wait_for(stream.read(head, pos_head % (2 * MB), 64 * 1024), 20)
+                assert data == content(pos_head % (2 * MB), len(data))
+                pos_head += len(data)
+                block = b""
+                while len(block) < MB:
+                    block += await asyncio.wait_for(stream.read(far, pos_far + len(block), MB - len(block)), 20)
+                assert block == content(pos_far, MB)
+                pos_far += MB
+            stream.detach(head)
+            stream.detach(far)
+            return net
+        finally:
+            await _cleanup(net, irc, stream)
+
+    net = asyncio.run(run())
+    assert [pos for _, pos in net.resumes] == [30 * MB]
+
+
+def test_lettura_vecchia_ferma_non_ruba_il_trasferimento(monkeypatch):
+    """Kodi tiene aperta, ferma, la connessione di prima (qui all'inizio del file); quella ha riempito il suo
+    buffer fino in fondo alla parte in RAM e chiede il seguito. Finché la lettura nuova riceve dati il trasferimento
+    resta suo; quando si ferma (Kodi è tornato alla connessione vecchia) passa all'altra."""
+    monkeypatch.setattr(st, "OWNER_IDLE", 0.5)
+
+    async def run():
+        net, irc, stream = await _setup()
+        try:
+            stream.start()
+            await _ready(stream)
+            old = stream.attach(0)
+            new = stream.attach(30 * MB)
+            pos = 30 * MB
+            first = await asyncio.wait_for(stream.read(new, pos, 256 * 1024), 20)  # il trasferimento ora è suo
+            pos += len(first)
+            parked = asyncio.ensure_future(stream.read(old, st.HEAD_MAX, 1000))  # oltre l'inizio in RAM
+            for _ in range(12):  # la lettura nuova riceve dati: il trasferimento resta suo
+                data = await asyncio.wait_for(stream.read(new, pos, 256 * 1024), 20)
+                assert data == content(pos, len(data))
+                pos += len(data)
+                await asyncio.sleep(0.1)
+            assert not parked.done() and [p for _, p in net.resumes] == [30 * MB]
+            data = await asyncio.wait_for(parked, 20)  # la nuova è ferma: ora tocca alla vecchia
+            assert data == content(st.HEAD_MAX, len(data))
+            stream.detach(old)
+            stream.detach(new)
+            return net
+        finally:
+            await _cleanup(net, irc, stream)
+
+    net = asyncio.run(run())
+    assert [p for _, p in net.resumes] == [30 * MB, st.HEAD_MAX]
+
+
+def test_punto_gia_scartato_dalla_ram_si_richiede():
+    """Kodi fermato e riaperto in un punto del trasferimento in corso che la RAM ha già scartato: quei dati non
+    arriveranno più da quel trasferimento, vanno richiesti (prima la lettura aspettava per sempre)."""
+    async def run():
+        net, irc, stream = await _setup()
+        try:
+            stream.start()
+            await _ready(stream)
+            assert await _read(stream, 0, 20 * MB) == content(0, 20 * MB)  # la finestra va oltre 9 MB e la scarta
+            assert stream.buf_start > 9 * MB
+            assert await _read(stream, 9 * MB, MB) == content(9 * MB, MB)
+            return net
+        finally:
+            await _cleanup(net, irc, stream)
+
+    net = asyncio.run(run())
+    assert [pos for _, pos in net.resumes] == [9 * MB]
+
+
+def test_ripresa_dallo_stesso_punto_senza_richiedere():
+    """Video fermato e ripreso dove era: la finestra è rimasta in RAM (nessuno legge: niente si scarta)."""
+    async def run():
+        net, irc, stream = await _setup()
+        try:
+            stream.start()
+            await _ready(stream)
+            assert await _read(stream, 30 * MB, MB) == content(30 * MB, MB)
+            await asyncio.sleep(0.5)  # fermato: il trasferimento continua un po' e poi frena
+            requests = len(net.sends())
+            assert await _read(stream, 30 * MB, 2 * MB) == content(30 * MB, 2 * MB)
+            return net, requests
+        finally:
+            await _cleanup(net, irc, stream)
+
+    net, requests = asyncio.run(run())
+    assert len(net.sends()) == requests == 2
 
 
 def test_nessuno_legge_il_bot_si_ferma():

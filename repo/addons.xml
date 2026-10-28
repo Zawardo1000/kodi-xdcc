@@ -21,7 +21,7 @@
         </assets>
     </extension>
 </addon>
-<addon id="plugin.video.xdcc.direct" name="Zawardo XDCC Direct" version="0.1.1" provider-name="zawardo">
+<addon id="plugin.video.xdcc.direct" name="Zawardo XDCC Direct" version="0.1.2" provider-name="zawardo">
     <requires>
         <import addon="xbmc.python" version="3.0.1"/>
     </requires>
@@ -36,7 +36,8 @@
         <description lang="en_GB">Latest additions, search and streaming of single video files from XDCC bots, straight from Kodi: nothing is saved, only a little video is kept in memory. Lists page, IRC server and channel go in the settings.</description>
         <platform>all</platform>
         <license>Uso privato</license>
-        <news>0.1.1: «Compila da Telegram» mette anche la chiave TMDB; locandine e trame sempre da TMDB.
+        <news>0.1.2: riprendere un video da dove era rimasto non torna più alla lista.
+0.1.1: «Compila da Telegram» mette anche la chiave TMDB; locandine e trame sempre da TMDB.
 0.1.0: prima versione.</news>
         <assets>
             <icon>resources/icon.png</icon>

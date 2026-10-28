@@ -69,6 +69,10 @@ def configured():
     return all(ADDON.getSetting(key).strip() for key in _SOURCES)
 
 
+def log(text):
+    xbmc.log(f"[{TITLE}] {text}", xbmc.LOGINFO)
+
+
 def lines(text):
     """A capo nei dialoghi di Kodi."""
     return text.replace("\n", "[CR]")
@@ -285,10 +289,12 @@ def wait_until_ready(api, job, item_id):
     try:
         while not monitor.abortRequested():
             if dialog.iscanceled():
+                log(f"guarda {job}: annullato dalla finestra di attesa")
                 api.cancel(job)
                 return None
             status = api.status(job, item_id)
             if status.get("stato") in ("pronto", "errore"):
+                log(f"guarda {job}: {status['stato']} {status.get('messaggio') or ''}")
                 return status
             total = status.get("totale") or 0
             percent = int(status.get("ricevuti", 0) * 100 / total) if total else 0
@@ -305,6 +311,7 @@ def watch(item_id):
     try:
         api = client()
         result = api.watch(item_id)
+        log(f"guarda {item_id}: {result.get('stato')} {result.get('lavoro') or result.get('messaggio') or ''}")
         if result.get("stato") == "avvio":
             result = wait_until_ready(api, result["lavoro"], item_id)
     except ApiError as e:

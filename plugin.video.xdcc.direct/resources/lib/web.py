@@ -12,9 +12,10 @@ import hmac
 import json
 import logging
 import mimetypes
+import socket
 from urllib.parse import parse_qsl, unquote, urlsplit
 
-from .stream import StreamError, Superseded
+from .stream import ReaderGone, StreamError
 
 logger = logging.getLogger("xdcc.direct")
 
@@ -95,7 +96,7 @@ class WebServer:
             if path.startswith("/api/"):
                 await self._api(writer, method, path[5:], dict(parse_qsl(url.query)), headers)
             elif path.startswith("/v/"):
-                await self._video(writer, method, path[3:], headers)
+                await self._video(writer, method, path[3:], headers, reader)
             else:
                 await self._send_json(writer, 404, {"detail": "Non trovato"})
         except (asyncio.IncompleteReadError, asyncio.LimitOverrunError, asyncio.TimeoutError, ValueError,
@@ -135,7 +136,7 @@ class WebServer:
             body, status = {"detail": e.message}, e.status
         await self._send_json(writer, status, body)
 
-    async def _video(self, writer, method, rest, headers):
+    async def _video(self, writer, method, rest, headers, client=None):
         token, _, rest = rest.partition("/")
         sid, _, name = rest.partition("/")
         if not self._token_ok(token):
@@ -164,7 +165,18 @@ class WebServer:
         await self._send_head(writer, 206 if wanted else 200, response)
         if method == "HEAD":
             return
+        # poco buffer verso Kodi: una connessione che Kodi tiene aperta ma non legge non va avanti da sola
+        writer.transport.set_write_buffer_limits(high=128 * 1024)
+        sock = writer.get_extra_info("socket")
+        if sock is not None:
+            with contextlib.suppress(OSError):
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 256 * 1024)
         reader = stream.attach(start)
+        # Kodi non manda altro dopo la richiesta: se la connessione si chiude (salto, stop) qui si legge la fine, e
+        # la lettura finisce anche se stava aspettando i dati
+        closed = asyncio.ensure_future(client.read(1)) if client else None
+        if closed:
+            closed.add_done_callback(lambda _: stream.detach(reader))
         try:
             pos = start
             while pos <= end:
@@ -172,7 +184,9 @@ class WebServer:
                 writer.write(data)
                 await writer.drain()
                 pos += len(data)
-        except (Superseded, StreamError):
+        except (ReaderGone, StreamError):
             pass
         finally:
+            if closed:
+                closed.cancel()
             stream.detach(reader)
