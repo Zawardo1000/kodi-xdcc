@@ -10,8 +10,10 @@ trasferimenti insieme. Salti ravvicinati (avanti avanti avanti) diventano una ri
 in avanti piccolo (fino a NEAR) aspetta i dati che stanno arrivando invece di richiedere.
 
 In RAM:
-- l'inizio del file (HEAD_MAX) e la fine (TAIL_MAX, dove MKV e AVI tengono l'indice): Kodi li rilegge all'avvio
-  e a ogni apertura, così non servono altre richieste;
+- l'inizio del file (HEAD_MAX) e la fine (TAIL_MAX, dove MKV e AVI tengono l'indice): si prendono prima di far
+  partire Kodi (_prepare), mentre l'addon mostra la sua finestra di attesa. Kodi li legge appena apre il video (anche
+  riprendendo da dove era rimasto) e lì non aspetta più di ~20 secondi una risposta: così, una volta aperto, gli
+  manca al massimo una richiesta (il punto di ripresa, o il seguito dell'inizio). Li rilegge a ogni apertura;
 - la finestra del trasferimento in corso: BEHIND dietro chi legge (piccoli salti indietro) e al massimo AHEAD_MAX
   davanti. Oltre, si smette di leggere dal bot, che rallenta da solo (TCP): Kodi ha già la sua cache.
 In pausa da più di STALL_CLOSE secondi il trasferimento si chiude e libera il posto del bot; alla ripresa si
@@ -45,11 +47,13 @@ AHEAD_MAX = 12 * MB
 BEHIND = 4 * MB
 NEAR = 8 * MB
 SKIP_MAX = 16 * MB  # bot che non riparte dal byte chiesto: si scarta dall'inizio fino a qui, oltre no
-READY = 2 * MB  # prima di far partire Kodi
+READY = 2 * MB
+PREPARE_HEAD_WAIT = 15  # secondi al massimo per avere tutto l'inizio (poi basta READY) prima di chiedere la fine
 DEBOUNCE = 0.6
 STALL_CLOSE = 90
 OWNER_IDLE = 2.0
 IDLE_STOP = 30
+_IDLE_POLL = 5  # ogni quanto si controlla se nessuno guarda più
 _TRIM_STEP = 2 * MB
 _CHUNK = 256 * 1024
 _CONNECT_TIMEOUT = 30
@@ -289,16 +293,28 @@ class Stream:
         self._transfer_id = 0  # cambia a ogni trasferimento: quello vecchio, se non si è accorto di doversi fermare, si ferma
         self._run_task = None
         self.closed = False
+        self.session_up = False  # connessione IRC pronta per questo file (_run è dentro la sessione)
+        self.preparing = False
+        self._prepared = False  # inizio e fine del file in RAM: Kodi può partire
+        self._prepare_task = None
         self.on_error = None  # avviso a chi guarda, se lo streaming si ferma mentre il video è aperto
 
     # --- stato ---
 
     @property
     def ready(self):
+        """Kodi può aprire il video: inizio e fine in RAM e connessione IRC pronta (per la richiesta che servirà)."""
+        return self.size is not None and self._prepared and self.session_up and self.requester.irc.connected
+
+    def progress(self):
+        """Preparazione da 0 a 1: metà l'inizio del file, metà la fine."""
         if self.size is None:
-            return False
-        have = max(len(self.head), len(self.buf))
-        return have >= min(READY, self.size) or self.tail_start == 0
+            return 0.0
+        head = min(1.0, len(self.head) / min(HEAD_MAX, self.size))
+        if self.size <= HEAD_MAX:
+            return head
+        tail = 1.0 if self.tail is not None else (len(self._tail_new or b"") / TAIL_MAX if self._tail_new else 0.0)
+        return head / 2 + min(1.0, tail) / 2
 
     def status(self):
         return {"pronto": self.ready, "errore": self.error, "fase": self.phase, "ricevuti": self.received,
@@ -395,7 +411,48 @@ class Stream:
     # --- ciclo principale ---
 
     def start(self):
-        self.want(0)
+        self.preparing = True
+        self._prepare_task = asyncio.ensure_future(self._prepare())
+
+    def warm(self):
+        """Lo stesso file riaperto: la connessione IRC si riapre (se nel frattempo si è chiusa) prima che Kodi parta."""
+        self.last_read = time.monotonic()
+        if self._run_task is None or self._run_task.done():
+            self._run_task = asyncio.ensure_future(self._run())
+        elif not self.requester.irc.connected:  # caduta mentre il file era aperto
+            asyncio.ensure_future(self._reconnect())
+
+    async def _reconnect(self):
+        try:
+            await self.requester.irc.ensure_connected()
+        except IrcError as e:
+            self.error = f"Connessione IRC non riuscita ({e})"
+        self._notify()
+
+    async def _prepare(self):
+        """Inizio del file (HEAD_MAX, o READY se il bot è lento) e poi la fine (TAIL_MAX), prima di far partire Kodi."""
+        try:
+            self.want(0)
+            deadline = time.monotonic() + PREPARE_HEAD_WAIT
+            while not self.closed and not self.error:
+                if self.size is not None and (len(self.head) >= min(HEAD_MAX, self.size) or (
+                        time.monotonic() > deadline and len(self.head) >= min(READY, self.size))):
+                    break
+                await self._wait_change(1.0)
+            if self.size is not None and self.size > HEAD_MAX + TAIL_MAX:
+                tail_from = self.size - TAIL_MAX
+                self.want(tail_from)
+                while not self.closed and not self.error and not (self.tail is not None and self.tail_start <= tail_from):
+                    if not self._transfer_running() and self._pending is None and self._run_task.done():
+                        self.want(tail_from)  # il ciclo è uscito (errore del bot gestito): si riprova
+                    self.phase = "Preparo la fine del file (l'indice)…" if self._transfer_running() else self.phase
+                    await self._wait_change(1.0)
+            if not self.closed and not self.error:
+                self._prepared = True
+                self.last_read = time.monotonic()  # Kodi sta per aprire: il conto di IDLE_STOP parte da qui
+        finally:
+            self.preparing = False
+            self._notify()
 
     async def _run(self):
         """Finché serve: tiene aperta la connessione IRC e fa partire i trasferimenti dove serve. Esce quando nessuno
@@ -404,17 +461,22 @@ class Stream:
             self.phase = "Collegamento a IRC…"
             self._notify()
             async with self.irc_session():
-                while not self.closed:
-                    if not await wait_event(self._wake, 5):
-                        idle = self.readers == 0 and time.monotonic() - self.last_read > IDLE_STOP
-                        if idle and self._pending is None:
-                            logger.info("XDCC: nessuno guarda più, chiudo il trasferimento")
-                            await self._stop_transfer()
-                            return
-                        continue
-                    target = await self._settle()
-                    if not self._covered(target):
-                        await self._switch(target)
+                self.session_up = True
+                self._notify()
+                try:
+                    while not self.closed:
+                        if not await wait_event(self._wake, _IDLE_POLL):
+                            idle = self.readers == 0 and time.monotonic() - self.last_read > IDLE_STOP
+                            if idle and self._pending is None and not self.preparing:
+                                logger.info("XDCC: nessuno guarda più, chiudo il trasferimento")
+                                await self._stop_transfer()
+                                return
+                            continue
+                        target = await self._settle()
+                        if not self._covered(target):
+                            await self._switch(target)
+                finally:
+                    self.session_up = False
         except (IrcError, DccError) as e:
             self.error = str(e)[:1].upper() + str(e)[1:]
             logger.warning(f"XDCC: {self.filename}: {e}")
@@ -452,6 +514,10 @@ class Stream:
             if released and released == self.bot:
                 await asyncio.sleep(max(0.0, when + BOT_SETTLE - time.monotonic()))
             avoid = {bot for bot, count in self._failures.items() if count >= 2}
+            if not self.requester.irc.connected:  # caduta nel frattempo: ci si ricollega prima di chiedere
+                self.phase = "Collegamento a IRC…"
+                self._notify()
+                await self.requester.irc.ensure_connected()
             self.phase = "Richiesta al bot…"
             self._notify()
             bot, offer = await self.requester.acquire(self.sources, prefer=self.bot, report=self._report,
@@ -606,6 +672,8 @@ class Stream:
         """Fine dello streaming (altro video o annullato): si ferma tutto, posto del bot liberato."""
         self.closed = True
         self._notify()
+        if self._prepare_task and not self._prepare_task.done():
+            self._prepare_task.cancel()
         task = self._run_task
         if task and not task.done():
             task.cancel()

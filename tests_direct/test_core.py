@@ -213,3 +213,21 @@ def test_senza_impostazioni_lo_dice():
 
     error = asyncio.run(run())
     assert error.status == 400 and "impostazioni" in error.message
+
+
+def test_novita_preparate_in_sottofondo(fake_sites):
+    async def run():
+        core = core_module.Core(lambda: settings())
+        await core.start(ports=(0,))
+        try:
+            assert await core.api("prepara", {}) == {"ok": True}  # risponde subito
+            await core._prefetching
+            asked = len(fake_sites)
+            films = (await core.api("novita", {"tipo": "film"}))["film"]
+            return asked, films
+        finally:
+            await core.close()
+
+    asked, films = asyncio.run(run())
+    assert asked == 3 and len(fake_sites) == 3  # pagina di partenza e le due liste, una volta sola
+    assert [f["nome"] for f in films] == [FILM, "Altro.Film.2025.iTA.mkv"]

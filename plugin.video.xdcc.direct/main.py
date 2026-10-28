@@ -253,6 +253,10 @@ def main_menu():
              folder("Serie · novità", azione="serie_novita"),
              folder("Cerca un film", azione="cerca", tipo="film"),
              folder("Cerca una serie", azione="cerca", tipo="serie")], "files")
+        try:
+            client().prefetch()  # le novità si preparano mentre si sceglie
+        except ApiError:
+            pass
     check_update()  # dopo il menu, che intanto è già sullo schermo
 
 
@@ -337,7 +341,8 @@ def watch(item_id):
     try:
         api = client()
         result = api.watch(item_id)
-        log(f"guarda {item_id}: {result.get('stato')} {result.get('lavoro') or result.get('messaggio') or ''}")
+        log(f"guarda {item_id} ({' '.join(sys.argv[3:]) or 'senza ripresa'}): {result.get('stato')} "
+            f"{result.get('lavoro') or result.get('messaggio') or ''}")
         if result.get("stato") == "avvio":
             result = wait_until_ready(api, result["lavoro"], item_id)
     except ApiError as e:

@@ -19,7 +19,7 @@ import urllib.request
 
 from . import cards, lists
 from .irc import IrcClient, IrcError
-from .stream import READY, Requester, Stream
+from .stream import Requester, Stream
 from .web import ApiError, WebServer
 
 logger = logging.getLogger("xdcc.direct")
@@ -92,6 +92,7 @@ class Core:
         self.stream = None
         self._starting = {}  # streaming in preparazione (si cercano i mirror): sid -> (nome, task)
         self._failed = {}  # sid -> messaggio, per stato() dopo un errore in preparazione
+        self._prefetching = None
 
     # --- avvio e arresto ---
 
@@ -252,7 +253,30 @@ class Core:
             return {"titolo": query, "stagioni": found, "serie": head}
         if name == "guarda":
             return await self.watch(config, params.get("id", ""))
+        if name == "prepara":
+            self.prefetch()
+            return {"ok": True}
         raise ApiError(404, "Richiesta sconosciuta")
+
+    def prefetch(self):
+        """Novità e schede in sottofondo, all'apertura dell'addon (mai ad addon chiuso): quando si entra nella lista
+        sono già pronte. Niente se sono ancora in memoria o se lo sta già facendo."""
+        if self._prefetching and not self._prefetching.done():
+            return
+        self._prefetching = asyncio.ensure_future(self._prefetch())
+
+    async def _prefetch(self):
+        try:
+            config = self.config()
+            files = await self.latest(config)
+            provider = self._cards_for(config)
+            if provider:
+                for items, serie in ((lists.latest_films(files), False), (lists.latest_shows(files), True)):
+                    entries = [cards.entry_of(item, item["titolo"] if "cerca" in item else lists.short_title(item["nome"]),
+                                              serie) for item in items]
+                    await provider.add_info(items, entries, wait=60)
+        except (ApiError, OSError) as e:
+            logger.info(f"liste non preparate: {getattr(e, 'message', type(e).__name__)}")
 
     def stream_of(self, sid):
         return self.stream if self.stream and self.stream.sid == sid and not self.stream.closed else None
@@ -267,6 +291,7 @@ class Core:
             raise ApiError(400, "Si guardano solo file video singoli.")
         current = self.stream
         if current and current.filename == filename and not current.closed and not current.error:
+            current.warm()  # la connessione IRC si riapre prima che Kodi parta, se nel frattempo si è chiusa
             return {"stato": "avvio", "lavoro": current.sid}
         await self._close_current()
         self._irc_for(config)
@@ -304,7 +329,7 @@ class Core:
 
     def status(self, sid):
         if sid in self._starting:
-            return {"stato": "attesa", "messaggio": "Cerco il file nelle liste…", "ricevuti": 0, "totale": READY}
+            return {"stato": "attesa", "messaggio": "Cerco il file nelle liste…", "ricevuti": 0, "totale": 100}
         if sid in self._failed:
             return {"stato": "errore", "messaggio": self._failed.pop(sid)}
         stream = self.stream_of(sid)
@@ -318,7 +343,7 @@ class Core:
         if stream.received:
             message += f"\n{lists.fmt_size(stream.received)}" + (
                 f" · {lists.fmt_size(stream.speed)}/s" if stream.speed else "")
-        return {"stato": "attesa", "messaggio": message, "ricevuti": min(stream.received, READY), "totale": READY}
+        return {"stato": "attesa", "messaggio": message, "ricevuti": int(stream.progress() * 100), "totale": 100}
 
     async def cancel(self, sid):
         if sid in self._starting or (self.stream and self.stream.sid == sid):

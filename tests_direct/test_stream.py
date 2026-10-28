@@ -10,11 +10,13 @@ import pytest
 from fake_irc import FakeNetwork, content, loopback_offer
 
 from resources.lib import stream as st
+from resources.lib import irc as irc_module
 from resources.lib.irc import IrcClient
 
 MB = st.MB
 SIZE = 64 * MB
 GAP = 0.3
+TAIL = SIZE - st.TAIL_MAX  # la fine del file, presa prima di far partire Kodi
 
 
 @pytest.fixture(autouse=True)
@@ -87,8 +89,8 @@ def test_avvio_come_un_mkv_poi_salto():
             await _cleanup(net, irc, stream)
 
     net = asyncio.run(run())
-    assert len(net.sends()) == 4  # inizio, fine, dopo la testa in RAM, salto
-    assert [pos for _, pos in net.resumes] == [tail, st.HEAD_MAX, 45 * MB]
+    assert len(net.sends()) == 4  # inizio e fine prima di partire, poi dopo l'inizio in RAM, poi il salto
+    assert [pos for _, pos in net.resumes] == [TAIL, st.HEAD_MAX, 45 * MB]  # l'indice: già in RAM
     assert {r[1] for r in net.sends()} == {"AAA|A|01"} and net.duplicates == 0  # mai "già richiesto"
     _check_gaps(net)
 
@@ -99,13 +101,15 @@ def test_salto_piccolo_aspetta_i_dati_senza_richiedere():
         try:
             stream.start()
             await _ready(stream)
-            assert await _read(stream, 0, MB) == content(0, MB)
-            assert await _read(stream, MB + 5 * MB, MB) == content(6 * MB, MB)  # 5 MB più avanti: arrivano
-            return net
+            assert await _read(stream, 10 * MB, MB) == content(10 * MB, MB)
+            before = len(net.sends())
+            assert await _read(stream, 16 * MB, MB) == content(16 * MB, MB)  # 5 MB più avanti: arrivano
+            return net, before
         finally:
             await _cleanup(net, irc, stream)
 
-    assert len(asyncio.run(run()).sends()) == 1
+    net, before = asyncio.run(run())
+    assert len(net.sends()) == before
 
 
 def test_salti_ravvicinati_una_sola_richiesta():
@@ -131,7 +135,7 @@ def test_salti_ravvicinati_una_sola_richiesta():
             await _cleanup(net, irc, stream)
 
     net = asyncio.run(run())
-    assert [pos for _, pos in net.resumes] == [50 * MB]
+    assert [pos for _, pos in net.resumes] == [TAIL, 50 * MB]
     _check_gaps(net)
 
 
@@ -162,7 +166,7 @@ def test_due_letture_insieme_come_nella_ripresa():
             await _cleanup(net, irc, stream)
 
     net = asyncio.run(run())
-    assert [pos for _, pos in net.resumes] == [30 * MB]
+    assert [pos for _, pos in net.resumes] == [TAIL, 30 * MB]
 
 
 def test_lettura_vecchia_ferma_non_ruba_il_trasferimento(monkeypatch):
@@ -187,7 +191,7 @@ def test_lettura_vecchia_ferma_non_ruba_il_trasferimento(monkeypatch):
                 assert data == content(pos, len(data))
                 pos += len(data)
                 await asyncio.sleep(0.1)
-            assert not parked.done() and [p for _, p in net.resumes] == [30 * MB]
+            assert not parked.done() and [p for _, p in net.resumes] == [TAIL, 30 * MB]
             data = await asyncio.wait_for(parked, 20)  # la nuova è ferma: ora tocca alla vecchia
             assert data == content(st.HEAD_MAX, len(data))
             stream.detach(old)
@@ -197,7 +201,7 @@ def test_lettura_vecchia_ferma_non_ruba_il_trasferimento(monkeypatch):
             await _cleanup(net, irc, stream)
 
     net = asyncio.run(run())
-    assert [p for _, p in net.resumes] == [30 * MB, st.HEAD_MAX]
+    assert [p for _, p in net.resumes] == [TAIL, 30 * MB, st.HEAD_MAX]
 
 
 def test_punto_gia_scartato_dalla_ram_si_richiede():
@@ -216,7 +220,7 @@ def test_punto_gia_scartato_dalla_ram_si_richiede():
             await _cleanup(net, irc, stream)
 
     net = asyncio.run(run())
-    assert [pos for _, pos in net.resumes] == [9 * MB]
+    assert [pos for _, pos in net.resumes] == [TAIL, st.HEAD_MAX, 9 * MB]
 
 
 def test_ripresa_dallo_stesso_punto_senza_richiedere():
@@ -235,7 +239,39 @@ def test_ripresa_dallo_stesso_punto_senza_richiedere():
             await _cleanup(net, irc, stream)
 
     net, requests = asyncio.run(run())
-    assert len(net.sends()) == requests == 2
+    assert len(net.sends()) == requests == 3  # inizio e fine prima di partire, il punto in cui si guarda
+
+
+def test_riaperto_dopo_che_il_servizio_ha_chiuso_tutto(monkeypatch):
+    """Film fermato da tanto: il servizio ha chiuso trasferimento e connessione IRC. Riaprendolo (Riprendi da...) non
+    è pronto finché IRC non è di nuovo collegato: Kodi poi aspetta solo la richiesta del punto di ripresa."""
+    monkeypatch.setattr(st, "IDLE_STOP", 0.2)
+    monkeypatch.setattr(st, "_IDLE_POLL", 0.1)
+    monkeypatch.setattr(irc_module, "_RECONNECT_GAP", 0)  # (davvero passano almeno 30 minuti)
+
+    async def run():
+        net, irc, stream = await _setup()
+        try:
+            stream.start()
+            await _ready(stream)
+            assert await _read(stream, 30 * MB, MB) == content(30 * MB, MB)
+            while stream.session_up:  # nessuno guarda: il servizio esce dalla sessione...
+                await asyncio.sleep(0.05)
+            await irc.close()  # ...e dopo un po' chiude la connessione IRC
+            assert not stream.ready
+            stream.warm()  # riaperto dall'addon
+            await _ready(stream)
+            assert irc.connected
+            requests = len(net.sends())
+            assert await _read(stream, 0, 1000) == content(0, 1000)  # inizio e fine: ancora in RAM
+            assert await _read(stream, SIZE - 1000, 1000) == content(SIZE - 1000, 1000)
+            assert await _read(stream, 50 * MB, MB) == content(50 * MB, MB)  # il punto di ripresa: una richiesta
+            return net, requests
+        finally:
+            await _cleanup(net, irc, stream)
+
+    net, requests = asyncio.run(run())
+    assert len(net.nicks) == 2 and len(net.sends()) == requests + 1
 
 
 def test_nessuno_legge_il_bot_si_ferma():
@@ -244,16 +280,17 @@ def test_nessuno_legge_il_bot_si_ferma():
         try:
             stream.start()
             await _ready(stream)
-            assert await _read(stream, 0, MB) == content(0, MB)
+            before = stream.received
+            assert await _read(stream, 30 * MB, MB) == content(30 * MB, MB)
             await asyncio.sleep(1)  # Kodi ha la sua cache piena: non legge
-            return net, len(stream.buf), stream.received
+            return net, len(stream.buf), stream.received - before
         finally:
             await _cleanup(net, irc, stream)
 
     net, window, received = asyncio.run(run())
     assert window <= st.AHEAD_MAX + st.BEHIND + 2 * MB
     assert received <= MB + st.AHEAD_MAX + 512 * 1024
-    assert net.transfers[0][2] < SIZE  # il bot è rimasto indietro (TCP pieno), non ha mandato tutto
+    assert net.transfers[-1][1] == 30 * MB and net.transfers[-1][2] < SIZE - 30 * MB  # il bot è rimasto indietro
 
 
 def test_coda_lunga_prova_un_altro_mirror():
@@ -300,13 +337,16 @@ def test_bot_che_non_riparte_dal_punto_chiesto(monkeypatch):
         net, irc, stream = await _setup(no_resume={"AAA|A|01"})
         try:
             stream.start()
-            await _ready(stream)
-            with pytest.raises(st.StreamError, match="non permette di saltare"):
-                await _read(stream, 40 * MB, 1000)
+            for _ in range(200):  # già prendendo la fine del file, prima di far partire Kodi
+                if stream.error:
+                    break
+                await asyncio.sleep(0.05)
+            return stream.error, stream.ready
         finally:
             await _cleanup(net, irc, stream)
 
-    asyncio.run(run())
+    error, ready = asyncio.run(run())
+    assert "non permette di saltare" in error and not ready
 
 
 def test_nick_gia_preso_o_registrato():

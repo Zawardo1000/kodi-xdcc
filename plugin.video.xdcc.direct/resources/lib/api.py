@@ -77,6 +77,10 @@ class ServiceApi:
     def cancel(self, job):
         return self.get("/annulla", lavoro=job)
 
+    def prefetch(self):
+        """Il servizio prepara novità e schede in sottofondo (risponde subito)."""
+        return self.get("/prepara")
+
 
 class ServerApi:
     def __init__(self, server, key="", timeout=30):
