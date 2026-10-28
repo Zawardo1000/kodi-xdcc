@@ -16,6 +16,7 @@ Locandina, sfondo, trama, anno e voto arrivano dal server (schede TMDB) quando l
 All'apertura (menu principale) controlla se il repository ha una versione più nuova dell'addon (check_update).
 """
 
+import random
 import re
 import sys
 import time
@@ -39,9 +40,34 @@ REPOSITORY = "repository.zawardo"
 UPDATE_INDEX = "https://raw.githubusercontent.com/Zawardo1000/kodi-xdcc/main/repo/addons.xml"
 _UPDATE_EVERY = 600  # secondi: tornando al menu principale non si ricontrolla subito
 DEFAULT_SERVER = "https://xdcc.zawardo.duckdns.org"
+DEFAULT_DEVICE = "Kodi"
 _MIME = {"mkv": "video/x-matroska", "avi": "video/x-msvideo", "mp4": "video/mp4", "m4v": "video/mp4",
          "ts": "video/mp2t", "mpg": "video/mpeg", "mpeg": "video/mpeg", "wmv": "video/x-ms-wmv",
          "mov": "video/quicktime", "divx": "video/x-msvideo"}
+
+
+_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # senza 0/O e 1/I, che si confondono
+_PLATFORMS = (("System.Platform.Android", "Android"), ("System.Platform.TVOS", "Apple TV"),
+              ("System.Platform.IOS", "iOS"), ("System.Platform.OSX", "Mac"), ("System.Platform.UWP", "Xbox"),
+              ("System.Platform.Windows", "Windows"), ("System.Platform.WebOS", "webOS"),
+              ("System.Platform.Linux.RaspberryPi", "Raspberry Pi"), ("System.Platform.Linux", "Linux"))
+
+
+def device_label():
+    """Nome di questo Kodi su Telegram: quello delle impostazioni, il nome del dispositivo in Kodi (se cambiato), il
+    sistema e un codice fisso di questa installazione, per distinguere più TV della stessa persona."""
+    code = ADDON.getSetting("codice")
+    if not code:
+        code = "".join(random.choice(_CODE_CHARS) for _ in range(4))
+        ADDON.setSetting("codice", code)
+    name = ADDON.getSetting("dispositivo").strip() or DEFAULT_DEVICE
+    friendly = xbmc.getInfoLabel("System.FriendlyName").strip()
+    parts = [name]
+    if friendly and friendly.lower() != "kodi" and friendly.lower() not in name.lower():
+        parts.append(friendly)
+    parts.append(next((label for condition, label in _PLATFORMS if xbmc.getCondVisibility(condition)), ""))
+    parts.append(code)
+    return " · ".join(p for p in parts if p)[:60]
 
 
 def plugin_url(**params):
@@ -278,7 +304,7 @@ def pair():
     arriva la chiave, che si salva nelle impostazioni. Niente da digitare col telecomando."""
     api = client(with_key=False)
     try:
-        started = api.pair_start(ADDON.getSetting("dispositivo") or "Kodi")
+        started = api.pair_start(device_label())
     except ApiError as e:
         xbmcgui.Dialog().ok(TITLE, lines(e.message))
         return False
@@ -286,6 +312,7 @@ def pair():
     deadline = time.time() + lifetime
     monitor = xbmc.Monitor()
     dialog = xbmcgui.DialogProgress()
+    seen_as = started.get("dispositivo") or device_label()
     dialog.create("Collega a Telegram", lines(f"Scrivi al bot LVI su Telegram:\n[B]/xdcc kodi {code}[/B]"))
     try:
         while time.time() < deadline and not monitor.abortRequested():
@@ -301,7 +328,8 @@ def pair():
                 break
             left = deadline - time.time()
             dialog.update(int(100 * (1 - left / lifetime)), lines(
-                f"Scrivi al bot LVI su Telegram:\n[B]/xdcc kodi {code}[/B]\nIl codice vale ancora {int(left // 60) + 1} min."))
+                f"Scrivi al bot LVI su Telegram:\n[B]/xdcc kodi {code}[/B]\nIl codice vale ancora {int(left // 60) + 1} min."
+                f"\nSu Telegram questo Kodi sarà: {seen_as}"))
             if monitor.waitForAbort(3):
                 return False
     except ApiError as e:

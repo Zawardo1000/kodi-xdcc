@@ -8,6 +8,8 @@ settings = {}
 info = {"id": "plugin.video.xdcc", "version": "0.3.0"}
 window = {}  # proprietà della finestra principale (Window(10000))
 home = {"path": ""}  # cartella vera al posto di special://home/
+labels = {}  # InfoLabel di Kodi (System.FriendlyName, ...)
+conditions = set()  # condizioni vere (System.Platform.Android, ...)
 answers = {"input": "", "yesno": False, "canceled": []}  # canceled: iscanceled() a ogni giro (poi False)
 
 
@@ -19,6 +21,8 @@ def reset():
     info.update({"version": "0.3.0"})
     window.clear()
     home["path"] = ""
+    labels.clear()
+    conditions.clear()
 
 
 class _Tag:
@@ -127,6 +131,8 @@ def install():
     xbmc.executebuiltin = lambda command: calls.append(("builtin", command))
     xbmc.log = lambda message, level=0: calls.append(("log", message))
     xbmc.LOGINFO, xbmc.LOGWARNING = 1, 2
+    xbmc.getInfoLabel = lambda label: labels.get(label, "")
+    xbmc.getCondVisibility = lambda condition: condition in conditions
     xbmcvfs = types.ModuleType("xbmcvfs")
     xbmcvfs.translatePath = lambda path: path.replace("special://home/", home["path"])
     xbmcaddon = types.ModuleType("xbmcaddon")

@@ -104,7 +104,8 @@ def test_collega(addon, monkeypatch):
     monkeypatch.setattr(addon, "client", lambda with_key=True: api)
     assert addon.pair() is True
     assert fake_kodi.settings["chiave"] == "segreta"
-    assert ("pair_start", "Kodi prova") in api.requests
+    code = fake_kodi.settings["codice"]
+    assert len(code) == 4 and ("pair_start", f"Kodi prova · {code}") in api.requests  # codice fisso, salvato
     assert any("/xdcc kodi K7P2QX" in c[1] for c in fake_kodi.calls if c[0] == "progress")
 
 

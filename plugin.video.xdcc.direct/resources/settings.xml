@@ -103,6 +103,15 @@
                 </setting>
             </group>
             <group id="2">
+                <setting id="codice" type="string">
+                    <level>4</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <visible>false</visible>
+                    <control type="edit" format="string"/>
+                </setting>
                 <setting id="nick_ripiego" type="string">
                     <level>4</level>
                     <default></default>

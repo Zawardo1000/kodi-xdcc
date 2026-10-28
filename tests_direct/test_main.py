@@ -145,3 +145,16 @@ def test_aggiornamento_guarda_il_suo_addon(addon, monkeypatch):
     monkeypatch.setattr(addon.urllib.request, "urlopen", lambda request, timeout: Response())
     addon.router("")
     assert ("notification", "Aggiornamento alla versione 0.2.0…") in fake_kodi.calls
+
+
+def test_nome_del_dispositivo_per_telegram(addon):
+    fake_kodi.conditions.update({"System.Platform.Android", "System.Platform.Linux"})
+    fake_kodi.labels["System.FriendlyName"] = "SHIELD"
+    label = addon.device_label()
+    code = fake_kodi.settings["codice"]
+    assert label == f"Kodi prova · SHIELD · Android · {code}" and len(code) == 4
+    assert not set(code) & set("0O1I")  # niente caratteri che si confondono
+    assert addon.device_label() == label  # il codice resta quello: è di questa installazione
+    fake_kodi.labels["System.FriendlyName"] = "Kodi"  # nome predefinito di Kodi: non dice niente
+    fake_kodi.settings["dispositivo"] = ""
+    assert addon.device_label() == f"Kodi Direct · Android · {code}"

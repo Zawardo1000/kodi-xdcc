@@ -10,8 +10,10 @@ La versione è quella di ogni addon.xml: alzala a ogni modifica, se no Kodi non 
 """
 
 import hashlib
+import io
 import re
 import shutil
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -39,18 +41,30 @@ def build_zip(addon_id: str) -> Path:
     version = _version((source / "addon.xml").read_text(encoding="utf-8"))
     out = REPO / addon_id / f"{addon_id}-{version}.zip"
     out.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(_entry(addon_id, folder=True), b"")
         for path in sorted(source.rglob("*")):
             if "__pycache__" in path.parts or path.suffix == ".pyc":
                 continue
             name = path.relative_to(ROOT).as_posix()
             archive.writestr(_entry(name, path.is_dir()), b"" if path.is_dir() else path.read_bytes())
-    out.with_name(out.name + ".sha256").write_text(hashlib.sha256(out.read_bytes()).hexdigest(), encoding="utf-8")
+    # lo zip di una versione già pubblicata non cambia (chi l'ha installata non si aggiornerebbe): si alza la versione
+    if out.exists() and out.read_bytes() != data.getvalue() and published(out):
+        raise SystemExit(f"{out.name} è già pubblicato con un contenuto diverso: alza version in {addon_id}/addon.xml")
+    out.write_bytes(data.getvalue())
+    out.with_name(out.name + ".sha256").write_text(hashlib.sha256(data.getvalue()).hexdigest(), encoding="utf-8")
     for asset in _assets((source / "addon.xml").read_text(encoding="utf-8")):
         (out.parent / asset).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source / asset, out.parent / asset)
     return out
+
+
+def published(path: Path) -> bool:
+    """Lo zip è già nel git (cioè pubblicato su GitHub, o lo sarà al prossimo push)?"""
+    result = subprocess.run(["git", "ls-files", "--error-unmatch", path.relative_to(ROOT).as_posix()], cwd=ROOT,
+                            capture_output=True)
+    return result.returncode == 0
 
 
 def _assets(addon_xml: str) -> list[str]:

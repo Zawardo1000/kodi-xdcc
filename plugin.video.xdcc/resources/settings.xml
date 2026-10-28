@@ -28,6 +28,15 @@
                         <hidden>true</hidden>
                     </control>
                 </setting>
+                <setting id="codice" type="string">
+                    <level>4</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <visible>false</visible>
+                    <control type="edit" format="string"/>
+                </setting>
                 <setting id="server" type="string" label="30101">
                     <level>2</level>
                     <default>https://xdcc.zawardo.duckdns.org</default>
