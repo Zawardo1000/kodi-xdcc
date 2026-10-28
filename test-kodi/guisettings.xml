@@ -1,0 +1,5 @@
+<settings version="2">
+    <setting id="addons.unknownsources">true</setting>
+    <setting id="services.esenabled">true</setting>
+    <setting id="screensaver.mode"></setting>
+</settings>
