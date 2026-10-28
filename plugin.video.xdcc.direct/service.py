@@ -17,8 +17,7 @@ from resources.lib import core, names
 ADDON_ID = "plugin.video.xdcc.direct"
 TITLE = "Zawardo XDCC Direct"
 PROP_PORT, PROP_TOKEN = "xdccdirect.porta", "xdccdirect.gettone"
-SETTINGS = ("pagina", "server_irc", "ssl", "canale", "nick", "nick_ripiego", "nick_occupato", "chiave_tmdb", "chiave",
-            "server")
+SETTINGS = ("pagina", "server_irc", "ssl", "canale", "nick", "nick_ripiego", "nick_occupato", "chiave_tmdb")
 
 
 class _KodiLog(logging.Handler):

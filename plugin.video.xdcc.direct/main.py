@@ -10,11 +10,11 @@ Percorsi (plugin://plugin.video.xdcc.direct/?azione=...):
 - stagione&q=...&n=...         episodi di una stagione
 - cerca&tipo=film|serie        tastiera, poi risultati
 - guarda&id=...                fa partire lo streaming e apre il video appena può
-- collega                      compila pagina, server e canale da Telegram (chi è registrato sul bot)
+- collega                      compila pagina, server, canale e chiave TMDB da Telegram (chi è registrato sul bot)
 - impostazioni                 apre le impostazioni
 
-Con la chiave di Telegram, all'apertura (una volta al giorno) rilegge dal server pagina, server e canale: se
-cambiano, si aggiornano da soli. All'apertura controlla anche se c'è una versione più nuova dell'addon.
+Con la chiave di Telegram, all'apertura (una volta al giorno) rilegge dal server pagina, server, canale e chiave
+TMDB: se cambiano, si aggiornano da soli. Le schede (locandine, trame) il servizio le chiede direttamente a TMDB. All'apertura controlla anche se c'è una versione più nuova dell'addon.
 """
 
 import re
@@ -184,7 +184,7 @@ def check_update():
 def apply_config(config):
     """Valori dal server nelle impostazioni. -> True se qualcosa è cambiato."""
     values = {"pagina": config.get("pagina"), "server_irc": config.get("server"), "canale": config.get("canale"),
-              "ssl": "true" if config.get("ssl", True) else "false"}
+              "ssl": "true" if config.get("ssl", True) else "false", "chiave_tmdb": config.get("tmdb")}
     changed = False
     for key, value in values.items():
         if value and ADDON.getSetting(key) != value:
@@ -322,7 +322,7 @@ def watch(item_id):
 
 
 def pair():
-    """Compila pagina, server e canale da Telegram: il server dà un codice, la persona scrive al bot
+    """Compila pagina, server, canale e chiave TMDB da Telegram: il server dà un codice, la persona scrive al bot
     "/xdcc kodi CODICE" e qui arriva la chiave, con cui si chiedono i valori. Niente da digitare col telecomando."""
     api = server(with_key=False)
     try:

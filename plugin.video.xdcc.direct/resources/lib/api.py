@@ -3,7 +3,7 @@ Client per main.py, solo libreria standard:
 - ServiceApi: il servizio dell'addon (127.0.0.1, gettone nell'header X-Token), stessi metodi del client dell'altro
   addon verso il server, così il menu è lo stesso;
 - ServerApi: il server del bot, solo per chi è registrato: abbinamento con Telegram e valori da mettere nelle
-  impostazioni (pagina delle liste, server IRC, canale).
+  impostazioni (pagina delle liste, server IRC, canale, chiave TMDB).
 """
 
 import json
@@ -95,5 +95,5 @@ class ServerApi:
         return self.get("/abbina/stato", codice=code, token=token)
 
     def direct_config(self):
-        """{"pagina", "server", "ssl", "canale"}: i valori per le impostazioni."""
+        """{"pagina", "server", "ssl", "canale", "tmdb"}: i valori per le impostazioni."""
         return self.get("/direct")

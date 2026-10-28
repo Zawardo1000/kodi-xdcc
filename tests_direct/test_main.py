@@ -91,7 +91,7 @@ def test_compila_da_telegram(addon, monkeypatch):
     for key in ("pagina", "server_irc", "canale"):
         fake_kodi.settings[key] = ""
     config = {"pagina": "https://liste.example/p.html", "server": "irc.example:6697", "ssl": True,
-              "canale": "#Canale"}
+              "canale": "#Canale", "tmdb": "chiave-tmdb"}
     servers = []
 
     def server(with_key=True):
@@ -104,8 +104,9 @@ def test_compila_da_telegram(addon, monkeypatch):
     monkeypatch.setattr(addon, "server", server)
     addon.router("?azione=collega")
     assert fake_kodi.settings["chiave"] == "k-segreta"
-    assert (fake_kodi.settings["pagina"], fake_kodi.settings["server_irc"], fake_kodi.settings["canale"]) == (
-        "https://liste.example/p.html", "irc.example:6697", "#Canale")
+    assert (fake_kodi.settings["pagina"], fake_kodi.settings["server_irc"], fake_kodi.settings["canale"],
+            fake_kodi.settings["chiave_tmdb"]) == ("https://liste.example/p.html", "irc.example:6697", "#Canale",
+                                                   "chiave-tmdb")
     assert servers[-1][:2] == (True, "k-segreta")  # i valori si chiedono con la chiave appena ricevuta
     assert ("notification", "Impostazioni compilate da Telegram") in fake_kodi.calls
 

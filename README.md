@@ -27,12 +27,12 @@ riceve la sua chiave da solo. Ogni Kodi ha la sua chiave, revocabile dal bot; il
 streaming dai bot, senza salvarli (in memoria solo qualche MB intorno al punto in cui si guarda). Si installa dallo
 stesso repository (Add-on video → **Zawardo XDCC Direct**).
 
-- Nelle impostazioni: indirizzo della pagina delle liste, server IRC (`indirizzo:porta`) e canale. Chi è registrato
-  sul bot del server li compila con **Compila da Telegram** (`/xdcc kodi CODICE`, come l'altro addon) e li riceve
-  aggiornati da soli.
+- Nelle impostazioni: indirizzo della pagina delle liste, server IRC (`indirizzo:porta`), canale e chiave TMDB. Chi è
+  registrato sul bot del server li compila con **Compila da Telegram** (`/xdcc kodi CODICE`, come l'altro addon) e
+  li riceve aggiornati da soli.
 - Nome utente IRC: un nome a caso alla prima apertura, modificabile. Se è già preso, lo stesso nome con 3 lettere in
   fondo.
-- Locandine e trame: dal server per chi è collegato a Telegram, altrimenti con una chiave TMDB propria (facoltativa).
+- Locandine e trame: direttamente da TMDB, con la chiave delle impostazioni (senza chiave, solo i nomi dei file).
 - Con i bot: una richiesta alla volta, almeno 3 secondi tra una e l'altra; i salti ravvicinati diventano una
   richiesta sola. In pausa per più di 90 secondi il trasferimento si chiude e libera il posto del bot.
 

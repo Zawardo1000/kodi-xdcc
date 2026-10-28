@@ -53,11 +53,11 @@ msgid "Cards"
 msgstr ""
 
 msgctxt "#30221"
-msgid "Personal TMDB key (optional)"
+msgid "TMDB key"
 msgstr ""
 
 msgctxt "#30222"
-msgid "Posters and plots: without Telegram, with your own free TMDB key"
+msgid "Posters and plots from TMDB: the key comes from Telegram, or use your own free one"
 msgstr ""
 
 msgctxt "#30230"

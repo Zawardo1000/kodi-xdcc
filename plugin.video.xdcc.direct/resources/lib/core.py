@@ -70,8 +70,7 @@ def parse_config(settings):
     else:
         nicks = [nick] + ([fallback] if fallback else [])
     return {"pagina": page, "host": host, "porta": port, "ssl": use_ssl, "canale": channel, "nicks": nicks, "nick": nick,
-            "chiave_tmdb": (settings.get("chiave_tmdb") or "").strip(), "chiave": (settings.get("chiave") or "").strip(),
-            "server": (settings.get("server") or "").strip()}
+            "chiave_tmdb": (settings.get("chiave_tmdb") or "").strip()}
 
 
 class Core:
@@ -136,15 +135,11 @@ class Core:
             self.save("nick_ripiego", now)
 
     def _cards_for(self, config):
-        if config["chiave"] and config["server"]:
-            key = ("server", config["server"], config["chiave"])
-        elif config["chiave_tmdb"]:
-            key = ("tmdb", config["chiave_tmdb"])
-        else:
+        if not config["chiave_tmdb"]:
             return None
-        if key != self._cards_key:
-            self._cards = cards.ServerCards(key[1], key[2]) if key[0] == "server" else cards.TmdbCards(key[1])
-            self._cards_key = key
+        if config["chiave_tmdb"] != self._cards_key:
+            self._cards = cards.TmdbCards(config["chiave_tmdb"])
+            self._cards_key = config["chiave_tmdb"]
         return self._cards
 
     # --- siti delle liste ---

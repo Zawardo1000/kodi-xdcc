@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.xdcc.direct" name="Zawardo XDCC Direct" version="0.1.0" provider-name="zawardo">
+<addon id="plugin.video.xdcc.direct" name="Zawardo XDCC Direct" version="0.1.1" provider-name="zawardo">
     <requires>
         <import addon="xbmc.python" version="3.0.1"/>
     </requires>
@@ -10,11 +10,12 @@
     <extension point="xbmc.addon.metadata">
         <summary lang="it_IT">Liste XDCC e streaming diretto da IRC, senza server</summary>
         <summary lang="en_GB">XDCC lists and direct streaming from IRC, no server needed</summary>
-        <description lang="it_IT">Novità, ricerca e streaming di file video singoli dai bot XDCC, direttamente da Kodi: niente salvato, solo un po' di video in memoria. Pagina delle liste, server IRC e canale si scrivono nelle impostazioni (o si compilano da Telegram, per chi è registrato).</description>
+        <description lang="it_IT">Novità, ricerca e streaming di file video singoli dai bot XDCC, direttamente da Kodi: niente salvato, solo un po' di video in memoria. Pagina delle liste, server IRC, canale e chiave TMDB si scrivono nelle impostazioni (o si compilano da Telegram, per chi è registrato).</description>
         <description lang="en_GB">Latest additions, search and streaming of single video files from XDCC bots, straight from Kodi: nothing is saved, only a little video is kept in memory. Lists page, IRC server and channel go in the settings.</description>
         <platform>all</platform>
         <license>Uso privato</license>
-        <news>0.1.0: prima versione.</news>
+        <news>0.1.1: «Compila da Telegram» mette anche la chiave TMDB; locandine e trame sempre da TMDB.
+0.1.0: prima versione.</news>
         <assets>
             <icon>resources/icon.png</icon>
         </assets>

@@ -1,14 +1,10 @@
 """
-Schede di film, serie ed episodi (locandina, sfondo, trama, anno, voto; per gli episodi titolo, trama e immagine),
-come quelle dell'addon col server:
-
-- ServerCards: chi ha collegato Kodi a Telegram le chiede al server (/xdcc/api/schede), che usa la sua chiave TMDB:
-  la chiave resta lì e la chiave di Kodi si può revocare dal bot.
-- TmdbCards: con una chiave TMDB personale nelle impostazioni, direttamente a TMDB.
-Senza nessuna delle due, niente schede: le liste funzionano uguale.
+Schede di film, serie ed episodi da TMDB (locandina, sfondo, trama, anno, voto; per gli episodi titolo, trama e
+immagine), come quelle dell'addon col server. Serve la chiave TMDB delle impostazioni (la mette «Compila da
+Telegram», o la scrive l'utente); senza, niente schede: le liste funzionano uguale.
 
 Le liste non aspettano più di WAIT secondi: le schede che arrivano dopo restano in memoria per la volta dopo.
-Le chiavi viaggiano nell'indirizzo o in un header: nei log solo il tipo di errore, mai l'indirizzo.
+La chiave viaggia nell'indirizzo: nei log solo il tipo di errore, mai l'indirizzo.
 """
 
 import asyncio
@@ -31,7 +27,6 @@ _POSTER = "https://image.tmdb.org/t/p/w500"
 _BACKDROP = "https://image.tmdb.org/t/p/w1280"
 _STILL = "https://image.tmdb.org/t/p/w300"
 _PLACEHOLDER_RE = re.compile(r"(episodio|episode)\s+\d+", re.I)  # titolo finto di TMDB quando manca quello vero
-_MAX_SERVER_ITEMS = 100
 
 
 def _get_json(url, headers=None, timeout=8):
@@ -155,44 +150,3 @@ class TmdbCards(_Cards):
             episodes = await self._cached(("season", card["id"], season), lambda: self._season(card["id"], season)) or {}
             fields.update({k: v for k, v in episodes.get(episode, {}).items() if v})
         return fields
-
-
-class ServerCards(_Cards):
-    """Le schede dal server: tutte quelle di una lista in una richiesta sola."""
-
-    def __init__(self, server, key):
-        super().__init__()
-        self.base = server.rstrip("/") + "/xdcc/api/schede"
-        self.key = key
-
-    async def info(self, entry):  # (non usata: add_info chiede tutto insieme)
-        found = await self._many([entry])
-        return found[0] if found else {}
-
-    async def _many(self, entries):
-        params = [("v", ":".join(str(x) for x in (e[0], *e[2:], e[1]))) for e in entries]
-        url = self.base + "?" + urllib.parse.urlencode(params)
-        data = await self._blocking(_get_json, url, {"X-Api-Key": self.key}, WAIT + 4)
-        cards = data.get("schede") or []
-        return [c if isinstance(c, dict) else {} for c in cards] + [{}] * (len(entries) - len(cards))
-
-    async def add_info(self, items, entries, wait=WAIT):
-        if not items:
-            return
-        missing = []
-        for item, entry in zip(items, entries):
-            hit = self._cache.get(entry)
-            if hit and hit[1] > time.monotonic():
-                item.update(hit[0])
-            else:
-                missing.append((item, entry))
-        for start in range(0, len(missing), _MAX_SERVER_ITEMS):
-            batch = missing[start:start + _MAX_SERVER_ITEMS]
-            try:
-                cards = await asyncio.wait_for(self._many([entry for _, entry in batch]), wait + 5)
-            except (OSError, ValueError, asyncio.TimeoutError) as e:
-                logger.warning(f"schede dal server non riuscite ({type(e).__name__})")
-                return
-            for (item, entry), card in zip(batch, cards):
-                self._cache[entry] = (card, time.monotonic() + (_TTL if card else _MISS_TTL))
-                item.update(card)

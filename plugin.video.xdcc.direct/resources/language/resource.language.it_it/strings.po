@@ -53,12 +53,12 @@ msgid "Cards"
 msgstr "Schede"
 
 msgctxt "#30221"
-msgid "Personal TMDB key (optional)"
-msgstr "Chiave TMDB personale (facoltativa)"
+msgid "TMDB key"
+msgstr "Chiave TMDB"
 
 msgctxt "#30222"
-msgid "Posters and plots: without Telegram, with your own free TMDB key"
-msgstr "Locandine e trame: senza Telegram, con una chiave TMDB tua (gratuita)"
+msgid "Posters and plots from TMDB: the key comes from Telegram, or use your own free one"
+msgstr "Locandine e trame da TMDB: la chiave la mette «Compila da Telegram», oppure una tua (gratuita)"
 
 msgctxt "#30230"
 msgid "Telegram"
