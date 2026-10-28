@@ -11,6 +11,8 @@ Percorsi (plugin://plugin.video.xdcc/?azione=...):
 - server                       file già sul server
 - guarda&id=...                fa partire (o si aggancia a) il download e apre il video appena può
 - collega                      abbinamento con Telegram (anche dal pulsante nelle impostazioni)
+
+Locandina, sfondo, trama, anno e voto arrivano dal server (schede TMDB) quando le ha: senza, solo il nome del file.
 """
 
 import sys
@@ -61,7 +63,7 @@ def size_text(size):
 
 
 def set_info(item, info):
-    """Titolo, tipo, stagione ed episodio: InfoTagVideo da Kodi 20, setInfo per Kodi 19."""
+    """Titolo, tipo, trama, anno, voto, serie, stagione ed episodio: InfoTagVideo da Kodi 20, setInfo per Kodi 19."""
     try:
         tag = item.getVideoInfoTag()
     except AttributeError:
@@ -69,10 +71,28 @@ def set_info(item, info):
         return
     tag.setTitle(info["title"])
     tag.setMediaType(info["mediatype"])
-    tag.setPlot(info["plot"])
+    tag.setPlot(info.get("plot") or "")
+    if info.get("year"):
+        tag.setYear(info["year"])
+    if info.get("rating"):
+        tag.setRating(info["rating"])
+    if info.get("tvshowtitle"):
+        tag.setTvShowTitle(info["tvshowtitle"])
     if info.get("season") is not None:
         tag.setSeason(info["season"])
+    if info.get("episode") is not None:
         tag.setEpisode(info["episode"])
+
+
+def set_art(item, card, show=None):
+    """Locandina, sfondo e miniatura dalla scheda TMDB; quelle mancanti dalla scheda della serie (show)."""
+    show = show or {}
+    poster = card.get("locandina") or show.get("locandina")
+    art = {"poster": poster, "fanart": card.get("sfondo") or show.get("sfondo"),
+           "thumb": card.get("miniatura") or poster}
+    art = {k: v for k, v in art.items() if v}
+    if art:
+        item.setArt(art)
 
 
 def folder(label, **params):
@@ -84,10 +104,14 @@ def playable(entry):
     resta lo stesso tra una volta e l'altra, così Kodi ricorda il punto in cui si era arrivati."""
     item = xbmcgui.ListItem(label=entry["titolo"])
     item.setProperty("IsPlayable", "true")
-    plot = f"{entry['nome']}\n{size_text(entry['dimensione'])}" + (f" · {entry['giorno']}" if entry.get("giorno") else "")
-    set_info(item, {"title": entry["titolo"], "plot": plot,
-                    "mediatype": "episode" if entry.get("episodio") else "movie",
+    details = f"{entry['nome']}\n{size_text(entry['dimensione'])}" + (f" · {entry['giorno']}" if entry.get("giorno") else "")
+    episode = entry.get("episodio") is not None
+    set_info(item, {"title": entry.get("titolo_episodio" if episode else "titolo_scheda") or entry["titolo"],
+                    "plot": f"{entry['trama']}\n\n{details}" if entry.get("trama") else details,
+                    "mediatype": "episode" if episode else "movie", "year": entry.get("anno"),
+                    "rating": entry.get("voto"), "tvshowtitle": entry.get("titolo_scheda") if episode else None,
                     "season": entry.get("stagione"), "episode": entry.get("episodio")})
+    set_art(item, entry)
     return plugin_url(azione="guarda", id=entry["id"]), item, False
 
 
@@ -109,24 +133,41 @@ def main_menu():
     end(items, "files")
 
 
+def show_folder(show):
+    url, item, is_folder = folder(f"{show['titolo']} ({show['episodi']})", azione="serie", q=show["cerca"])
+    set_info(item, {"title": show.get("titolo_scheda") or show["titolo"], "plot": show.get("trama"),
+                    "mediatype": "tvshow", "year": show.get("anno"), "rating": show.get("voto")})
+    set_art(item, show)
+    return url, item, is_folder
+
+
+def season_folder(query, season, show):
+    url, item, is_folder = folder(f"Stagione {season['numero']} ({len(season['episodi'])} episodi)",
+                                  azione="stagione", q=query, n=season["numero"])
+    set_info(item, {"title": f"Stagione {season['numero']}", "plot": show.get("trama"), "mediatype": "season",
+                    "tvshowtitle": show.get("titolo_scheda"), "season": season["numero"]})
+    set_art(item, {}, show)
+    return url, item, is_folder
+
+
 def show_list(shows):
-    end([folder(f"{s['titolo']} ({s['episodi']})", azione="serie", q=s["cerca"]) for s in shows], "tvshows")
+    end([show_folder(s) for s in shows], "tvshows")
 
 
 def show_seasons(query):
-    seasons = client().seasons(query)
+    page = client().show_page(query)
+    seasons = page["stagioni"]
     if not seasons:
         xbmcgui.Dialog().notification(TITLE, "Nessun episodio guardabile (solo file singoli)")
         xbmcplugin.endOfDirectory(HANDLE, succeeded=False)
     elif len(seasons) == 1:
         end([playable(e) for e in seasons[0]["episodi"]], "episodes")
     else:
-        end([folder(f"Stagione {s['numero']} ({len(s['episodi'])} episodi)", azione="stagione", q=query, n=s["numero"])
-             for s in seasons], "seasons")
+        end([season_folder(query, s, page["serie"]) for s in seasons], "seasons")
 
 
 def show_season(query, number):
-    season = next((s for s in client().seasons(query) if str(s["numero"]) == str(number)), None)
+    season = next((s for s in client().show_page(query)["stagioni"] if str(s["numero"]) == str(number)), None)
     end([playable(e) for e in season["episodi"]] if season else [], "episodes")
 
 

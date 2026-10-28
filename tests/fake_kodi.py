@@ -39,6 +39,9 @@ class ListItem:
     def setMimeType(self, value):
         self.mime = value
 
+    def setArt(self, art):
+        self.props["art"] = art
+
 
 class Dialog:
     def ok(self, heading, message):

@@ -85,12 +85,14 @@ def test_chiave_non_valida_propone_di_ricollegare(addon, monkeypatch):
 
 def test_serie_con_piu_stagioni_e_con_una(addon, monkeypatch):
     episode = dict(FILM, stagione=1, episodio=5)
-    api = FakeApi(seasons=[[{"numero": 1, "episodi": [episode]}, {"numero": 2, "episodi": [episode]}],
-                           [{"numero": 1, "episodi": [episode]}]])
+    api = FakeApi(show_page=[{"stagioni": [{"numero": 1, "episodi": [episode]}, {"numero": 2, "episodi": [episode]}],
+                              "serie": {"locandina": "https://img/serie.jpg"}},
+                             {"stagioni": [{"numero": 1, "episodi": [episode]}], "serie": {}}])
     monkeypatch.setattr(addon, "client", lambda with_key=True: api)
     addon.router("?azione=serie&q=Nord")
-    labels = [i[1].label for i in plugin("addDirectoryItems")[0][1][1]]
-    assert labels == ["Stagione 1 (1 episodi)", "Stagione 2 (1 episodi)"]
+    folders = plugin("addDirectoryItems")[0][1][1]
+    assert [i[1].label for i in folders] == ["Stagione 1 (1 episodi)", "Stagione 2 (1 episodi)"]
+    assert folders[0][1].props["art"]["poster"] == "https://img/serie.jpg"  # la locandina della serie
     addon.router("?azione=serie&q=Nord")  # una stagione sola: subito gli episodi
     url, item, is_folder = plugin("addDirectoryItems")[1][1][1][0]
     assert not is_folder and item.tag.info["season"] == 1 and item.tag.info["episode"] == 5
@@ -104,3 +106,29 @@ def test_collega(addon, monkeypatch):
     assert fake_kodi.settings["chiave"] == "segreta"
     assert ("pair_start", "Kodi prova") in api.requests
     assert any("/xdcc kodi K7P2QX" in c[1] for c in fake_kodi.calls if c[0] == "progress")
+
+
+def test_schede_tmdb(addon, monkeypatch):
+    film = dict(FILM, titolo_scheda="Hellfire", trama="Un incendio.", anno=2026, voto=6.8,
+                locandina="https://img/p.jpg", sfondo="https://img/b.jpg")
+    episode = dict(FILM, stagione=1, episodio=1, titolo_scheda="Sheriff Country", titolo_episodio="Pilota",
+                   trama="Il primo.", locandina="https://img/s.jpg", miniatura="https://img/e1.jpg")
+    show = {"titolo": "Sheriff Country", "cerca": "Sheriff Country", "episodi": 2, "trama": "La serie.",
+            "locandina": "https://img/s.jpg"}
+    api = FakeApi(latest_films=[[film]], latest_shows=[[show]],
+                  show_page=[{"stagioni": [{"numero": 1, "episodi": [episode]}], "serie": {}}])
+    monkeypatch.setattr(addon, "client", lambda with_key=True: api)
+    addon.router("?azione=film_novita")
+    item = plugin("addDirectoryItems")[0][1][1][0][1]
+    assert item.label == "Hellfire 2026 · 1,6 GB"  # l'etichetta resta quella con dimensione e qualità
+    assert item.tag.info["title"] == "Hellfire" and item.tag.info["year"] == 2026 and item.tag.info["rating"] == 6.8
+    assert item.tag.info["plot"].startswith("Un incendio.\n\nHellfire.2026.mkv")
+    assert item.props["art"] == {"poster": "https://img/p.jpg", "fanart": "https://img/b.jpg",
+                                 "thumb": "https://img/p.jpg"}
+    addon.router("?azione=serie_novita")
+    folder = plugin("addDirectoryItems")[1][1][1][0][1]
+    assert folder.tag.info["plot"] == "La serie." and folder.props["art"]["poster"] == "https://img/s.jpg"
+    addon.router("?azione=serie&q=Sheriff+Country")
+    item = plugin("addDirectoryItems")[2][1][1][0][1]
+    assert item.tag.info["title"] == "Pilota" and item.tag.info["tvshowtitle"] == "Sheriff Country"
+    assert item.props["art"]["thumb"] == "https://img/e1.jpg" and item.props["art"]["poster"] == "https://img/s.jpg"

@@ -58,8 +58,10 @@ class XdccApi:
     def latest_shows(self):
         return self.get("/novita", tipo="serie")["serie"]
 
-    def seasons(self, query):
-        return self.get("/serie", q=query)["stagioni"]
+    def show_page(self, query):
+        """{"stagioni": [...], "serie": scheda della serie (locandina, sfondo, trama; vuota sui server vecchi)}"""
+        page = self.get("/serie", q=query)
+        return {"stagioni": page["stagioni"], "serie": page.get("serie") or {}}
 
     def search(self, query, kind):
         return self.get("/cerca", q=query, tipo=kind)["serie" if kind == "serie" else "film"]
