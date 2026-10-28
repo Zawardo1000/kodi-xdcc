@@ -69,8 +69,13 @@ class ServiceApi:
     def search(self, query, kind):
         return self.get("/cerca", q=query, tipo=kind)["serie" if kind == "serie" else "film"]
 
-    def watch(self, item_id):
-        return self.get("/guarda", id=item_id)
+    def watch(self, item_id, resume=False, seconds=0.0):
+        """resume: Kodi riprende da dove era rimasto, a seconds (il servizio scarica quel punto prima di partire)."""
+        return self.get("/guarda", id=item_id, ripresa="1" if resume else "0", da=f"{seconds:.1f}")
+
+    def update_wanted(self, version):
+        """C'è la versione nuova dell'addon: il servizio fa rileggere i repository a Kodi finché arriva."""
+        return self.get("/aggiorna", versione=version)
 
     def status(self, job, item_id):
         return self.get("/stato", lavoro=job, id=item_id)

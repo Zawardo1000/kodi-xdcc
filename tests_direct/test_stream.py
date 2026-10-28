@@ -338,6 +338,74 @@ def test_espulso_dal_canale_si_rientra(monkeypatch):
     assert not out_after_kick and "espulso" in error and "flood" in error and back
 
 
+def test_ripresa_niente_richiesta_per_il_seguito_dell_inizio(monkeypatch):
+    """Riprendendo, Kodi legge l'inizio oltre la parte in RAM (riempie la sua cache) e un attimo dopo salta al
+    punto di ripresa: la prima richiesta dev'essere il punto di ripresa, non il seguito dell'inizio."""
+    monkeypatch.setattr(st, "RESUME_GRACE", 3)
+
+    async def run():
+        net, irc, stream = await _setup()
+        try:
+            stream.resuming = True
+            stream.start()
+            await _ready(stream)
+            before = len(net.resumes)
+            head = stream.attach(0)
+            ahead = asyncio.ensure_future(stream.read(head, st.HEAD_MAX, 1000))  # oltre l'inizio in RAM
+            await asyncio.sleep(0.8)  # più del DEBOUNCE: senza la regola, qui partirebbe la richiesta
+            assert await _read(stream, 40 * MB, MB) == content(40 * MB, MB)
+            first = net.resumes[before][1]
+            stream.detach(head)
+            ahead.cancel()
+            return first
+        finally:
+            await _cleanup(net, irc, stream)
+
+    assert asyncio.run(run()) == 40 * MB
+
+
+def test_si_preferisce_il_mirror_piu_veloce(monkeypatch):
+    monkeypatch.setattr(st, "UNKNOWN_LATENCY", 0.5)
+
+    async def run():
+        net, irc, stream = await _setup(sources=(("AAA|A|01", "#1"), ("AAA|A|02", "#7")), slow={"AAA|A|01": 1.0})
+        try:
+            stream.start()  # il primo nell'ordine della lista: AAA|A|01, lento (1 s)
+            await _ready(stream)  # la fine del file: meglio l'altro, mai provato (stimato 0,5 s)
+            assert await _read(stream, 30 * MB, MB) == content(30 * MB, MB)  # e ancora quello, ora misurato
+            return [r[1] for r in net.sends()]
+        finally:
+            await _cleanup(net, irc, stream)
+
+    assert asyncio.run(run()) == ["AAA|A|01", "AAA|A|02", "AAA|A|02"]
+
+
+def test_ripresa_dal_punto_esatto_prima_di_partire(monkeypatch):
+    """Con il punto di ripresa (secondi da Kodi) il servizio trova il byte nell'indice e lo scarica prima del
+    "pronto": quando Kodi ci salta, i dati ci sono già, senza nessuna richiesta al bot."""
+    points = [(0.0, 0), (1270.0, 39 * MB), (1280.0, 40 * MB), (1290.0, 41 * MB)]  # un punto ogni 10 s
+    monkeypatch.setattr(st.mkv, "cue_points", lambda head, tail, tail_start: points)
+
+    async def run():
+        net, irc, stream = await _setup(filename="Film.2026.iTA.mkv")
+        try:
+            stream.resuming, stream.resume_at = True, 1286.8
+            stream.start()
+            await _ready(stream)
+            requests = len(net.sends())
+            head = stream.attach(0)
+            assert await stream.read(head, 0, 1000) == content(0, 1000)
+            assert await _read(stream, 40 * MB, MB) == content(40 * MB, MB)  # dove Kodi riparte: già in RAM
+            stream.detach(head)
+            return net, requests
+        finally:
+            await _cleanup(net, irc, stream)
+
+    net, requests = asyncio.run(run())
+    assert [pos for _, pos in net.resumes] == [TAIL, 39 * MB]  # la fine e il punto prima della ripresa, prima di partire
+    assert len(net.sends()) == requests  # e niente dopo
+
+
 def test_nessuno_legge_il_bot_si_ferma():
     async def run():
         net, irc, stream = await _setup()

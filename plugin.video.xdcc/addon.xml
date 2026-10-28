@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.xdcc" name="Zawardo XDCC" version="0.3.1" provider-name="zawardo">
+<addon id="plugin.video.xdcc" name="Zawardo XDCC" version="0.3.2" provider-name="zawardo">
     <requires>
         <import addon="xbmc.python" version="3.0.1"/>
     </requires>
@@ -13,7 +13,8 @@
         <description lang="en_GB">Browse, search and play videos from a personal server, even while it is still preparing them. Requires a key issued by the server (Link to Telegram).</description>
         <platform>all</platform>
         <license>Uso privato</license>
-        <news>0.3.1: su Telegram il Kodi collegato ha sistema e un codice (più TV si distinguono).
+        <news>0.3.2: aggiornamenti senza aspettare la cache di GitHub.
+0.3.1: su Telegram il Kodi collegato ha sistema e un codice (più TV si distinguono).
 0.3.0: nuovo nome e icona; all'apertura controlla se c'è una versione nuova e la installa.
 0.2.0: locandina, sfondo e trama.</news>
         <assets>

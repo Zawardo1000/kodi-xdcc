@@ -74,7 +74,9 @@ def test_novita_e_guarda(addon, monkeypatch):
     addon.router("?azione=film_novita")
     url, item, is_folder = plugin("addDirectoryItems")[0][1][1][0]
     assert url == "plugin://plugin.video.xdcc.direct/?azione=guarda&id=AAA%3AHellfire.2026.mkv" and not is_folder
+    monkeypatch.setattr(addon.sys, "argv", addon.sys.argv[:3] + ["resume:true"])
     addon.router("?azione=guarda&id=AAA%3AHellfire.2026.mkv")
+    assert ("watch", "AAA:Hellfire.2026.mkv", True, 0.0) in api.requests  # la ripresa arriva al servizio
     assert ("update", 50, "Richiesta a AAA|A|01") in fake_kodi.calls
     resolved = plugin("setResolvedUrl")[0][1]
     assert resolved[1] is True and resolved[2].path.startswith("http://127.0.0.1:48771/")
@@ -147,7 +149,7 @@ def test_aggiornamento_guarda_il_suo_addon(addon, monkeypatch):
 
     monkeypatch.setattr(addon.urllib.request, "urlopen", lambda request, timeout: Response())
     addon.router("")
-    assert ("notification", "Aggiornamento alla versione 0.2.0…") in fake_kodi.calls
+    assert ("notification", "Aggiornamento alla versione 0.2.0: arriva da solo tra poco") in fake_kodi.calls
 
 
 def test_nome_del_dispositivo_per_telegram(addon):
@@ -175,3 +177,26 @@ def test_verifica_irc(addon, monkeypatch):
     fake_kodi.calls.clear()
     addon.router("?azione=irc")
     assert any(c[0] == "ok" and "come [B]giulia[/B]" in c[1] and "3 s fa" in c[1] for c in fake_kodi.calls)
+
+
+
+def test_punto_di_ripresa_dal_database_di_kodi(addon, monkeypatch, tmp_path):
+    """Kodi salva il punto di ripresa con l'indirizzo intero dell'elemento (visto sulla TV, MyVideos131.db)."""
+    import sqlite3
+    url = "plugin://plugin.video.xdcc.direct/?azione=guarda&id=AAA%3AFilm.mkv"
+    con = sqlite3.connect(tmp_path / "MyVideos131.db")
+    con.executescript("""CREATE TABLE files (idFile INTEGER PRIMARY KEY, idPath INTEGER, strFilename TEXT);
+        CREATE TABLE bookmark (idBookmark INTEGER PRIMARY KEY, idFile INTEGER, timeInSeconds DOUBLE,
+                               totalTimeInSeconds DOUBLE, type INTEGER);""")
+    con.execute("INSERT INTO files VALUES (1, 1, ?)", (url,))
+    con.execute("INSERT INTO bookmark VALUES (1, 1, 1286.842123, 2740.992, 1)")
+    con.commit()
+    con.close()
+    (tmp_path / "MyVideos121.db").write_bytes(b"")  # una versione vecchia: si legge la più nuova
+    monkeypatch.setattr(addon.xbmcvfs, "translatePath", lambda path: str(tmp_path) + "/")
+    monkeypatch.setattr(addon, "BASE", "plugin://plugin.video.xdcc.direct/")
+    monkeypatch.setattr(addon.sys, "argv", ["plugin://plugin.video.xdcc.direct/", "5", "?azione=guarda&id=AAA%3AFilm.mkv",
+                                            "resume:true"])
+    assert addon.resume_point() == 1286.842123
+    monkeypatch.setattr(addon.sys, "argv", ["plugin://plugin.video.xdcc.direct/", "5", "?azione=guarda&id=AAA%3AAltro.mkv"])
+    assert addon.resume_point() == 0.0

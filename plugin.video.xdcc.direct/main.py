@@ -18,8 +18,10 @@ Con la chiave di Telegram, all'apertura (una volta al giorno) rilegge dal server
 TMDB: se cambiano, si aggiornano da soli. Le schede (locandine, trame) il servizio le chiede direttamente a TMDB. All'apertura controlla anche se c'è una versione più nuova dell'addon.
 """
 
+import os
 import random
 import re
+import sqlite3
 import sys
 import time
 import urllib.request
@@ -190,16 +192,38 @@ def _update_index():
         return UPDATE_INDEX
 
 
+_RAW_RE = re.compile(r"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)")
+
+
+def _fresh_index_url(url):
+    """L'indice all'ultimo commit pubblicato (indirizzo che non cambia mai, quindi mai vecchio): l'indirizzo di
+    sempre GitHub lo tiene in cache fino a 5 minuti, e subito dopo una pubblicazione dice ancora la versione vecchia.
+    Se GitHub non risponde (o il repository non è su GitHub), l'indirizzo di sempre."""
+    m = _RAW_RE.fullmatch(url)
+    if not m:
+        return url
+    owner, repo, branch, path = m.groups()
+    try:
+        request = urllib.request.Request(f"https://api.github.com/repos/{owner}/{repo}/commits/{branch}",
+                                         headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github.sha"})
+        with urllib.request.urlopen(request, timeout=5) as response:
+            sha = response.read().decode("ascii", "replace").strip()
+    except (OSError, ValueError):
+        return url
+    return f"https://raw.githubusercontent.com/{owner}/{repo}/{sha}/{path}" if re.fullmatch(r"[0-9a-f]{40}", sha) else url
+
+
 def check_update():
-    """Versione più nuova nel repository: Kodi aggiorna i repository e la installa subito (aggiornamento automatico,
-    la scelta predefinita di Kodi). Senza rete o se qualcosa va storto, niente."""
+    """Versione più nuova nel repository: Kodi rilegge i repository e la installa (aggiornamento automatico, la
+    scelta predefinita di Kodi). Finché non è installata si riprova a ogni apertura (subito dopo una pubblicazione la
+    cache di GitHub può dare ancora l'indice vecchio a Kodi). Senza rete o se qualcosa va storto, niente."""
     home = xbmcgui.Window(10000)
     last = home.getProperty("xdccdirect.aggiornamenti")
     if last and time.time() - float(last) < _UPDATE_EVERY:
         return
     home.setProperty("xdccdirect.aggiornamenti", str(time.time()))
     try:
-        request = urllib.request.Request(_update_index(), headers={"User-Agent": USER_AGENT})
+        request = urllib.request.Request(_fresh_index_url(_update_index()), headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(request, timeout=5) as response:
             index = response.read().decode("utf-8")
     except (OSError, ValueError) as e:
@@ -208,8 +232,14 @@ def check_update():
     tag = re.search(r'<addon\s[^>]*\bid="plugin\.video\.xdcc\.direct"[^>]*>', index)
     found = re.search(r'\bversion="([^"]+)"', tag[0]) if tag else None
     if found and _version(found[1]) > _version(ADDON.getAddonInfo("version")):
-        xbmcgui.Dialog().notification(TITLE, f"Aggiornamento alla versione {found[1]}…")
+        home.clearProperty("xdccdirect.aggiornamenti")  # alla prossima apertura si insiste, finché non arriva
+        xbmc.log(f"[{TITLE}] versione {found[1]} disponibile: Kodi rilegge i repository", xbmc.LOGINFO)
+        xbmcgui.Dialog().notification(TITLE, f"Aggiornamento alla versione {found[1]}: arriva da solo tra poco")
         xbmc.executebuiltin("UpdateAddonRepos")
+        try:
+            client().update_wanted(found[1])  # il servizio insiste finché arriva (la cache di GitHub)
+        except ApiError:
+            pass
 
 
 def apply_config(config):
@@ -377,7 +407,8 @@ def watch(item_id):
     result = None
     try:
         api = client()
-        result = api.watch(item_id)
+        resume = "resume:true" in sys.argv[3:]
+        result = api.watch(item_id, resume, resume_point() if resume else 0.0)
         log(f"guarda {item_id} ({' '.join(sys.argv[3:]) or 'senza ripresa'}): {result.get('stato')} "
             f"{result.get('lavoro') or result.get('messaggio') or ''}")
         if result.get("stato") == "avvio":
@@ -394,6 +425,27 @@ def watch(item_id):
     if result and result.get("messaggio"):
         xbmcgui.Dialog().ok(TITLE, lines(result["messaggio"]))
     xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
+
+
+def resume_point():
+    """Secondi del punto di ripresa che Kodi ha salvato per questo video (dal suo database, in sola lettura); 0 se
+    non c'è. Il servizio scarica quel punto prima di far partire il video."""
+    url = BASE + (sys.argv[2] if len(sys.argv) > 2 else "")
+    try:
+        folder = xbmcvfs.translatePath("special://database/")
+        names = [n for n in os.listdir(folder) if re.fullmatch(r"MyVideos\d+\.db", n)]
+        newest = max(names, key=lambda n: int(re.sub(r"\D", "", n)))
+        con = sqlite3.connect(f"file:{os.path.join(folder, newest)}?mode=ro", uri=True, timeout=3)
+        try:
+            row = con.execute("SELECT b.timeInSeconds FROM bookmark b JOIN files f ON b.idFile = f.idFile "
+                              "WHERE b.type = 1 AND f.strFilename = ? ORDER BY b.idBookmark DESC LIMIT 1",
+                              (url,)).fetchone()
+        finally:
+            con.close()
+        return float(row[0]) if row else 0.0
+    except (OSError, ValueError, sqlite3.Error) as e:
+        log(f"punto di ripresa non letto ({type(e).__name__})")
+        return 0.0
 
 
 def pair():

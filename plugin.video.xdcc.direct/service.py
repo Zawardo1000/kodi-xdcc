@@ -7,6 +7,7 @@ Alla prima partenza sceglie a caso il nome utente IRC (impostazioni, si può cam
 """
 
 import logging
+import re
 
 import xbmc
 import xbmcaddon
@@ -17,6 +18,7 @@ from resources.lib import core, names
 ADDON_ID = "plugin.video.xdcc.direct"
 TITLE = "Zawardo XDCC Direct"
 PROP_PORT, PROP_TOKEN = "xdccdirect.porta", "xdccdirect.gettone"
+_UPDATE_TRIES = 8
 SETTINGS = ("pagina", "server_irc", "ssl", "canale", "nick", "nick_ripiego", "nick_occupato", "chiave_tmdb")
 
 
@@ -45,6 +47,26 @@ def ensure_nick():
         addon.setSetting("nick", names.random_name())
 
 
+def push_update(core):
+    """Versione nuova vista dall'addon: GitHub tiene l'indice in cache fino a 5 minuti, e Kodi da solo ricontrolla i
+    repository una volta al giorno. Si fanno rileggere i repository una volta al minuto, al massimo _UPDATE_TRIES
+    volte; Kodi poi la installa da solo (chiudendo questo servizio e avviando quello nuovo)."""
+    if not core.update_target or core.update_tries >= _UPDATE_TRIES:
+        return
+    installed = xbmcaddon.Addon(ADDON_ID).getAddonInfo("version")
+    if _version(installed) >= _version(core.update_target):
+        core.update_target = None
+        return
+    core.update_tries += 1
+    xbmc.log(f"[{TITLE}] versione {core.update_target} disponibile: rileggo i repository ({core.update_tries})",
+             xbmc.LOGINFO)
+    xbmc.executebuiltin("UpdateAddonRepos")
+
+
+def _version(text):
+    return tuple(int(n) for n in re.findall(r"\d+", text)[:3])
+
+
 def main():
     logger = logging.getLogger("xdcc.direct")
     logger.addHandler(_KodiLog())
@@ -63,8 +85,9 @@ def main():
     xbmc.log(f"[{TITLE}] servizio pronto", xbmc.LOGINFO)
     monitor = xbmc.Monitor()
     while not monitor.abortRequested():
-        if monitor.waitForAbort(10):
+        if monitor.waitForAbort(60):
             break
+        push_update(runner.core)
     home.clearProperty(PROP_PORT)
     home.clearProperty(PROP_TOKEN)
     runner.stop()

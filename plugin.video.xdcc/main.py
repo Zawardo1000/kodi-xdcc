@@ -169,17 +169,38 @@ def _update_index():
         return UPDATE_INDEX
 
 
+_RAW_RE = re.compile(r"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)")
+
+
+def _fresh_index_url(url):
+    """L'indice all'ultimo commit pubblicato (indirizzo che non cambia mai, quindi mai vecchio): l'indirizzo di
+    sempre GitHub lo tiene in cache fino a 5 minuti, e subito dopo una pubblicazione dice ancora la versione vecchia.
+    Se GitHub non risponde (o il repository non è su GitHub), l'indirizzo di sempre."""
+    m = _RAW_RE.fullmatch(url)
+    if not m:
+        return url
+    owner, repo, branch, path = m.groups()
+    try:
+        request = urllib.request.Request(f"https://api.github.com/repos/{owner}/{repo}/commits/{branch}",
+                                         headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github.sha"})
+        with urllib.request.urlopen(request, timeout=5) as response:
+            sha = response.read().decode("ascii", "replace").strip()
+    except (OSError, ValueError):
+        return url
+    return f"https://raw.githubusercontent.com/{owner}/{repo}/{sha}/{path}" if re.fullmatch(r"[0-9a-f]{40}", sha) else url
+
+
 def check_update():
-    """Versione più nuova nel repository: Kodi aggiorna i repository e, con l'aggiornamento automatico (scelta
-    predefinita di Kodi), la installa subito invece che al suo controllo di ogni 24 ore. Una richiesta piccola
-    (l'indice); senza rete o se qualcosa va storto, niente."""
+    """Versione più nuova nel repository: Kodi rilegge i repository e la installa (aggiornamento automatico, la
+    scelta predefinita di Kodi). Finché non è installata si riprova a ogni apertura (subito dopo una pubblicazione la
+    cache di GitHub può dare ancora l'indice vecchio a Kodi). Senza rete o se qualcosa va storto, niente."""
     home = xbmcgui.Window(10000)
     last = home.getProperty("xdcc.aggiornamenti")
     if last and time.time() - float(last) < _UPDATE_EVERY:
         return
     home.setProperty("xdcc.aggiornamenti", str(time.time()))
     try:
-        request = urllib.request.Request(_update_index(), headers={"User-Agent": USER_AGENT})
+        request = urllib.request.Request(_fresh_index_url(_update_index()), headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(request, timeout=5) as response:
             index = response.read().decode("utf-8")
     except (OSError, ValueError) as e:
@@ -188,7 +209,9 @@ def check_update():
     tag = re.search(r'<addon\s[^>]*\bid="plugin\.video\.xdcc"[^>]*>', index)
     found = re.search(r'\bversion="([^"]+)"', tag[0]) if tag else None
     if found and _version(found[1]) > _version(ADDON.getAddonInfo("version")):
-        xbmcgui.Dialog().notification(TITLE, f"Aggiornamento alla versione {found[1]}…")
+        home.clearProperty("xdcc.aggiornamenti")  # alla prossima apertura si insiste, finché non arriva
+        xbmc.log(f"[{TITLE}] versione {found[1]} disponibile: Kodi rilegge i repository", xbmc.LOGINFO)
+        xbmcgui.Dialog().notification(TITLE, f"Aggiornamento alla versione {found[1]}: arriva da solo tra poco")
         xbmc.executebuiltin("UpdateAddonRepos")
 
 

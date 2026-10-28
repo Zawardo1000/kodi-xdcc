@@ -93,6 +93,8 @@ class Core:
         self._starting = {}  # streaming in preparazione (si cercano i mirror): sid -> (nome, task)
         self._failed = {}  # sid -> messaggio, per stato() dopo un errore in preparazione
         self._prefetching = None
+        self.update_target = None  # versione nuova dell'addon vista all'apertura: service.py insiste finché arriva
+        self.update_tries = 0
 
     # --- avvio e arresto ---
 
@@ -254,7 +256,16 @@ class Core:
             await self._add_info(config, [head] + [ep for s in found for ep in s["episodi"]], serie=True, title=query)
             return {"titolo": query, "stagioni": found, "serie": head}
         if name == "guarda":
-            return await self.watch(config, params.get("id", ""))
+            try:
+                seconds = float(params.get("da") or 0)
+            except ValueError:
+                seconds = 0.0
+            seconds = seconds if 0 < seconds < 24 * 3600 else 0.0
+            return await self.watch(config, params.get("id", ""), params.get("ripresa") == "1", seconds)
+        if name == "aggiorna":
+            self.update_target = params.get("versione") or None
+            self.update_tries = 0
+            return {"ok": True}
         if name == "prepara":
             self.prefetch()
             return {"ok": True}
@@ -307,18 +318,21 @@ class Core:
         return (f"http://127.0.0.1:{self.web.port}/v/{self.token}/{stream.sid}/"
                 + urllib.parse.quote(stream.filename))
 
-    async def watch(self, config, item_id):
+    async def watch(self, config, item_id, resume=False, seconds=0.0):
         site, _, filename = item_id.partition(":")
         if not filename or not lists.PLAYABLE_RE.search(filename):
             raise ApiError(400, "Si guardano solo file video singoli.")
         current = self.stream
         if current and current.filename == filename and not current.closed and not current.error:
             current.warm()  # la connessione IRC si riapre prima che Kodi parta, se nel frattempo si è chiusa
+            current.resuming = resume
+            current.prepare_resume(seconds if resume else None)
             return {"stato": "avvio", "lavoro": current.sid}
         await self._close_current()
         self._irc_for(config)
         sid = secrets.token_hex(4)
-        self._starting[sid] = (filename, asyncio.ensure_future(self._prepare(config, sid, site, filename)))
+        self._starting[sid] = (filename, asyncio.ensure_future(
+            self._prepare(config, sid, site, filename, resume, seconds)))
         return {"stato": "avvio", "lavoro": sid}
 
     async def _close_current(self):
@@ -329,7 +343,7 @@ class Core:
         if stream:
             await stream.close()
 
-    async def _prepare(self, config, sid, site, filename):
+    async def _prepare(self, config, sid, site, filename, resume=False, seconds=0.0):
         """Mirror del file (dalla ricerca), poi lo streaming."""
         try:
             releases = await self.search(config, filename)
@@ -340,6 +354,8 @@ class Core:
             irc, requester = self._irc_for(config)
             stream = Stream(sid, filename, list(release.parts[0].sources), release.size, irc.session, requester)
             stream.on_error = self.notify
+            stream.resuming = resume
+            stream.resume_at = seconds if resume else None
             self.stream = stream
             stream.start()
         except ApiError as e:

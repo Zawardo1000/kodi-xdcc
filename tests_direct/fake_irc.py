@@ -32,7 +32,7 @@ def loopback_offer(nick, ctcp):
 
 class FakeNetwork:
     def __init__(self, size, filename="Film.2026.iTA.mkv", taken=(), registered=(), queue=None, no_resume=(),
-                 silent=(), notice_delay=0.5):
+                 silent=(), notice_delay=0.5, slow=None):
         self.size, self.filename = size, filename
         self.taken, self.registered = set(taken), set(registered)
         self.queue = dict(queue or {})  # bot -> (posizione, secondi prima dell'invio)
@@ -44,6 +44,7 @@ class FakeNetwork:
         self.lines = []
         self._pending = {}  # porta -> posizione chiesta con RESUME
         self._tasks = []
+        self.slow = dict(slow or {})  # bot -> secondi prima di rispondere con l'offerta
         self.notice_delay = notice_delay  # come i bot veri: si accorgono tardi che chi riceve ha chiuso
         self._busy = set()  # bot con un trasferimento ancora in corso (per loro)
         self.duplicates = 0  # richieste arrivate mentre il bot credeva di stare ancora inviando
@@ -150,6 +151,7 @@ class FakeNetwork:
             position, delay = self.queue.pop(bot)
             send(f":{bot}!b@h NOTICE {nick} :** All Slots Full, Added you to the main queue in position {position}.")
             await asyncio.sleep(delay)
+        await asyncio.sleep(self.slow.get(bot, 0))
         server = await asyncio.start_server(lambda r, w: self._transfer(bot, port, r, w, server), "127.0.0.1", 0)
         port = server.sockets[0].getsockname()[1]
         send(f":{bot}!b@h NOTICE {nick} :** Sending you pack #1 (\"{self.filename}\")")

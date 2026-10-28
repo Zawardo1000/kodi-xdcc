@@ -34,6 +34,7 @@ import re
 import struct
 import time
 
+from . import mkv
 from .irc import DISCONNECTED, DccError, IrcError, parse_dcc_accept, parse_dcc_send, strip_colors
 
 logger = logging.getLogger("xdcc.direct")
@@ -52,6 +53,8 @@ PREPARE_HEAD_WAIT = 15  # secondi al massimo per avere tutto l'inizio (poi basta
 DEBOUNCE = 0.6
 STALL_CLOSE = 90
 OWNER_IDLE = 2.0
+RESUME_GRACE = 8  # riprendendo: per questi secondi dall'apertura il seguito dell'inizio non si chiede (arriva il salto)
+UNKNOWN_LATENCY = 4.0  # risposta stimata di un bot mai provato: uno già visto più lento passa dietro
 IDLE_STOP = 30
 _IDLE_POLL = 5  # ogni quanto si controlla se nessuno guarda più
 _TRIM_STEP = 2 * MB
@@ -108,6 +111,7 @@ class Requester:
         self.irc, self.gap = irc, gap
         self._last = -gap
         self._lock = asyncio.Lock()
+        self.latency = {}  # bot -> secondi dalla richiesta all'offerta DCC, l'ultima volta
 
     async def wait_gap(self, early=0.0):
         """Aspetta che siano passati gap secondi dall'ultima richiesta (meno early)."""
@@ -173,6 +177,7 @@ class Requester:
                 if msg.command == "PRIVMSG" and ctcp.upper().startswith("DCC SEND") and not r.offer.done():
                     try:
                         r.offer.set_result(parse_dcc_send(msg.nick, ctcp))
+                        self.latency[bot] = time.monotonic() - self._last
                         r.status = "invio"
                     except DccError as e:
                         r.status, r.note = "rifiutato", str(e)
@@ -298,6 +303,10 @@ class Stream:
         self.preparing = False
         self._prepared = False  # inizio e fine del file in RAM: Kodi può partire
         self._prepare_task = None
+        self.resuming = False  # Kodi riprende da dove era rimasto: salterà subito al punto di ripresa
+        self.resume_at = None  # secondi del punto di ripresa (da Kodi): il servizio lo scarica prima di partire
+        self._resume_task = None
+        self._opened_at = None  # quando Kodi ha aperto il video (prima lettura con nessun'altra aperta)
         self.on_error = None  # avviso a chi guarda, se lo streaming si ferma mentre il video è aperto
 
     # --- stato ---
@@ -363,6 +372,8 @@ class Stream:
         """Kodi apre una lettura da pos (le altre aperte restano valide)."""
         self._reader_gen += 1
         reader = _Reader(self._reader_gen, pos)
+        if not self._readers:
+            self._opened_at = time.monotonic()
         self._readers.add(reader)
         self.last_read = time.monotonic()
         logger.info(f"XDCC: Kodi legge da {pos} ({len(self._readers)} letture aperte)")
@@ -395,9 +406,15 @@ class Stream:
                 reader.served = time.monotonic()
                 self._notify()  # chi aspetta spazio (il trasferimento frenato) riparte
                 return data
+            if self.resuming and pos > HEAD_MAX + NEAR:
+                self.resuming = False  # eccolo, il salto al punto di ripresa
+            # riprendendo, Kodi riempie la sua cache dall'inizio del file e un attimo dopo salta al punto di
+            # ripresa: il seguito dell'inizio non si chiede, la richiesta sarebbe sprecata (e il bot lento)
+            early = (self.resuming and pos <= HEAD_MAX + NEAR and self._opened_at is not None
+                     and time.monotonic() - self._opened_at < RESUME_GRACE)
             owner = self._owner
-            if not self._covered(pos) and (owner is None or owner.gone or reader.gen >= owner.gen
-                                           or time.monotonic() - owner.served > OWNER_IDLE):
+            if not early and not self._covered(pos) and (owner is None or owner.gone or reader.gen >= owner.gen
+                                                         or time.monotonic() - owner.served > OWNER_IDLE):
                 self._owner = reader
                 self.want(pos)
             await self._wait_change(1.0)
@@ -414,6 +431,47 @@ class Stream:
     def start(self):
         self.preparing = True
         self._prepare_task = asyncio.ensure_future(self._prepare())
+
+    def prepare_resume(self, seconds):
+        """Lo stesso file riaperto per riprendere a seconds: il punto si scarica prima di dire "pronto"."""
+        self.resume_at = seconds
+        if not seconds or not self._prepared or (self._resume_task and not self._resume_task.done()):
+            return
+        self._prepared = False
+        self._resume_task = asyncio.ensure_future(self._redo_resume())
+
+    async def _redo_resume(self):
+        try:
+            await self._fetch_resume_point()
+        finally:
+            if not self.closed and not self.error:
+                self._prepared = True
+                self.last_read = time.monotonic()
+            self._notify()
+
+    async def _fetch_resume_point(self):
+        """Il punto di ripresa (dall'indice dell'MKV, già in RAM) scaricato prima che Kodi parta: Kodi ci salta appena
+        aperto e lì non aspetterebbe più di ~20 secondi la risposta del bot."""
+        if not self.resume_at or self.size is None or self.closed or self.error:
+            return
+        points = mkv.cue_points(self.head, self.tail, self.tail_start) if self.filename.lower().endswith(".mkv") else []
+        target = mkv.resume_position(points, self.resume_at)
+        clock = f"{int(self.resume_at // 60)}:{int(self.resume_at % 60):02d}"
+        if target is None or not len(self.head) <= target < (self.tail_start if self.tail is not None else self.size):
+            logger.info(f"XDCC: ripresa a {clock}: punto non trovato nell'indice" if target is None else
+                        f"XDCC: ripresa a {clock}: già in RAM")
+            return
+        logger.info(f"XDCC: ripresa a {clock}: dall'indice parte al byte {target}, lo scarico prima di partire")
+        self.phase = f"Preparo il punto di ripresa ({clock})…"
+        self._notify()
+        self.want(target)
+        while not self.closed and not self.error:
+            have = self._lookup(target, READY)
+            if len(have) >= min(READY, self.size - target):
+                return
+            if not self._transfer_running() and self._pending is None and self._run_task.done():
+                self.want(target)
+            await self._wait_change(1.0)
 
     def warm(self):
         """Lo stesso file riaperto: la connessione IRC si riapre (se nel frattempo si è chiusa) prima che Kodi parta."""
@@ -448,6 +506,7 @@ class Stream:
                         self.want(tail_from)  # il ciclo è uscito (errore del bot gestito): si riprova
                     self.phase = "Preparo la fine del file (l'indice)…" if self._transfer_running() else self.phase
                     await self._wait_change(1.0)
+            await self._fetch_resume_point()
             if not self.closed and not self.error:
                 self._prepared = True
                 self.last_read = time.monotonic()  # Kodi sta per aprire: il conto di IDLE_STOP parte da qui
@@ -511,10 +570,11 @@ class Stream:
             await self.requester.wait_gap()
             if not target <= self.target <= target + NEAR:  # un altro salto durante l'attesa: conta quello
                 target = self._pending = self.target
-            released, when = self._released
-            if released and released == self.bot:
-                await asyncio.sleep(max(0.0, when + BOT_SETTLE - time.monotonic()))
             avoid = {bot for bot, count in self._failures.items() if count >= 2}
+            prefer = self._fastest(avoid)
+            released, when = self._released
+            if released and released == prefer:
+                await asyncio.sleep(max(0.0, when + BOT_SETTLE - time.monotonic()))
             irc = self.requester.irc
             # connessione caduta, morta in silenzio o fuori dal canale: ci si ricollega prima di chiedere
             if not await irc.check_alive() or not irc.in_channel:
@@ -523,8 +583,7 @@ class Stream:
                 await irc.ensure_connected()
             self.phase = "Richiesta al bot…"
             self._notify()
-            bot, offer = await self.requester.acquire(self.sources, prefer=self.bot, report=self._report,
-                                                      avoid=avoid)
+            bot, offer = await self.requester.acquire(self.sources, prefer=prefer, report=self._report, avoid=avoid)
             if self.size is None:
                 self.size = offer.size
             if offer.size != self.size or target >= offer.size:
@@ -549,6 +608,19 @@ class Stream:
         finally:
             self._pending = None
             self._notify()
+
+    def _fastest(self, avoid):
+        """Il mirror che dovrebbe rispondere prima: tempo dell'ultima risposta (stimato se mai provato), più
+        l'attesa per quello appena lasciato (deve accorgersi della chiusura). A parità, quello di prima."""
+        released, when = self._released
+        settle = max(0.0, when + BOT_SETTLE - time.monotonic())
+
+        def cost(bot):
+            return (self.requester.latency.get(bot, UNKNOWN_LATENCY) + (settle if bot == released else 0.0),
+                    bot != self.bot)
+
+        bots = [bot for bot, _ in self.sources if bot not in avoid] or [bot for bot, _ in self.sources]
+        return min(bots, key=cost) if self.requester.latency else self.bot
 
     def _report(self, text):
         self.phase = text

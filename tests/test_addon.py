@@ -169,9 +169,9 @@ def test_aggiornamento_all_apertura(addon, monkeypatch, tmp_path):
     addon.router("")
     assert asked == ["https://repo.test/addons.xml"]  # l'indirizzo del repository installato
     assert ("builtin", "UpdateAddonRepos") in fake_kodi.calls
-    assert ("notification", "Aggiornamento alla versione 0.10.0…") in fake_kodi.calls
-    addon.router("")  # di nuovo al menu poco dopo: niente secondo controllo
-    assert len(asked) == 1
+    assert ("notification", "Aggiornamento alla versione 0.10.0: arriva da solo tra poco") in fake_kodi.calls
+    addon.router("")  # non ancora installata: alla prossima apertura si insiste
+    assert len(asked) == 2
 
 
 def test_niente_aggiornamento_se_e_gia_l_ultima(addon, monkeypatch):
@@ -180,7 +180,8 @@ def test_niente_aggiornamento_se_e_gia_l_ultima(addon, monkeypatch):
     monkeypatch.setattr(addon.urllib.request, "urlopen", lambda request, timeout: asked.append(request.full_url)
                         or _Index("0.3.0"))
     addon.router("")
-    assert asked == [addon.UPDATE_INDEX]  # repository non leggibile: l'indirizzo di riserva
+    # repository non leggibile: l'indirizzo di riserva (GitHub non ha detto l'ultimo commit: quello di sempre)
+    assert asked == ["https://api.github.com/repos/Zawardo1000/kodi-xdcc/commits/main", addon.UPDATE_INDEX]
     assert not [c for c in fake_kodi.calls if c[0] == "builtin"]
 
 
@@ -192,3 +193,26 @@ def test_aggiornamento_senza_rete(addon, monkeypatch):
     addon.router("")
     assert plugin("addDirectoryItems")  # il menu c'è lo stesso
     assert not [c for c in fake_kodi.calls if c[0] == "builtin"]
+
+
+
+def test_aggiornamento_senza_la_cache_di_github(addon, monkeypatch):
+    """L'indice si legge all'ultimo commit (GitHub tiene in cache l'indirizzo di sempre fino a 5 minuti); niente
+    secondo controllo per 10 minuti se è già l'ultima versione."""
+    fake_kodi.home["path"] = "/non/esiste/"
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    asked = []
+
+    class Sha(_Index):
+        def read(self):
+            return sha.encode()
+
+    def urlopen(request, timeout):
+        asked.append(request.full_url)
+        return Sha("") if "api.github.com" in request.full_url else _Index("0.3.0")
+
+    monkeypatch.setattr(addon.urllib.request, "urlopen", urlopen)
+    addon.router("")
+    addon.router("")
+    assert asked == ["https://api.github.com/repos/Zawardo1000/kodi-xdcc/commits/main",
+                     f"https://raw.githubusercontent.com/Zawardo1000/kodi-xdcc/{sha}/repo/addons.xml"]
