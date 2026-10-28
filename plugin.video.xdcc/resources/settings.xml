@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<settings version="1">
+    <section id="plugin.video.xdcc">
+        <category id="generale" label="30100">
+            <group id="1">
+                <setting id="collega" type="action" label="30104">
+                    <level>0</level>
+                    <data>RunPlugin(plugin://plugin.video.xdcc/?azione=collega)</data>
+                    <control type="button" format="action">
+                        <close>true</close>
+                    </control>
+                </setting>
+                <setting id="dispositivo" type="string" label="30102">
+                    <level>0</level>
+                    <default>Kodi</default>
+                    <control type="edit" format="string">
+                        <heading>30102</heading>
+                    </control>
+                </setting>
+                <setting id="chiave" type="string" label="30103">
+                    <level>0</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="edit" format="string">
+                        <heading>30103</heading>
+                        <hidden>true</hidden>
+                    </control>
+                </setting>
+                <setting id="server" type="string" label="30101">
+                    <level>2</level>
+                    <default>https://xdcc.zawardo.duckdns.org</default>
+                    <control type="edit" format="string">
+                        <heading>30101</heading>
+                    </control>
+                </setting>
+            </group>
+        </category>
+    </section>
+</settings>

@@ -1,0 +1,106 @@
+"""L'addon col finto Kodi e un finto server: menu, liste, attesa, riproduzione, collegamento."""
+import fake_kodi
+from resources.lib.api import ApiError
+
+
+class FakeApi:
+    """Server finto: risposte preparate dal test, richieste registrate."""
+
+    def __init__(self, **responses):
+        self.responses, self.requests = responses, []
+
+    def _answer(self, name, *args):
+        self.requests.append((name, *args))
+        answer = self.responses[name]
+        if isinstance(answer, list):  # una risposta per chiamata
+            answer = answer.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    def __getattr__(self, name):
+        return lambda *args: self._answer(name, *args)
+
+
+def plugin(name):
+    return [c for c in fake_kodi.calls if c[0] == name]
+
+
+FILM = {"id": "RLD:Hellfire.2026.mkv", "titolo": "Hellfire 2026 · 1,6 GB", "nome": "Hellfire.2026.mkv",
+        "dimensione": 1_700_000_000, "giorno": "oggi", "stagione": None, "episodio": None}
+
+
+def test_menu_senza_chiave_propone_il_collegamento(addon):
+    addon.router("")
+    items = plugin("addDirectoryItems")[0][1][1]
+    assert "Collega a Telegram" in items[0][1].label and "azione=collega" in items[0][0]
+    fake_kodi.settings["chiave"] = "k"
+    addon.router("")
+    labels = [i[1].label for i in plugin("addDirectoryItems")[1][1][1]]
+    assert labels == ["Film · novità", "Serie · novità", "Cerca un film", "Cerca una serie", "Già sul server"]
+
+
+def test_novita_film(addon, monkeypatch):
+    monkeypatch.setattr(addon, "client", lambda with_key=True: FakeApi(latest_films=[[FILM]]))  # una chiamata
+    addon.router("?azione=film_novita")
+    url, item, is_folder = plugin("addDirectoryItems")[0][1][1][0]
+    assert not is_folder and item.props["IsPlayable"] == "true"
+    assert url == "plugin://plugin.video.xdcc/?azione=guarda&id=RLD%3AHellfire.2026.mkv"
+    assert item.tag.info["mediatype"] == "movie"
+
+
+def test_guarda_aspetta_e_poi_parte(addon, monkeypatch):
+    api = FakeApi(watch={"stato": "avvio", "lavoro": "j1"},
+                  status=[{"stato": "attesa", "messaggio": "4 MB di 1,6 GB\nparte tra 1 min", "ricevuti": 4, "totale": 100},
+                          {"stato": "pronto", "url": "https://server.test/xdcc/link/Hellfire.2026.mkv"}])
+    monkeypatch.setattr(addon, "client", lambda with_key=True: api)
+    addon.router("?azione=guarda&id=RLD%3AHellfire.2026.mkv")
+    assert ("update", 4, "4 MB di 1,6 GB[CR]parte tra 1 min") in fake_kodi.calls
+    resolved = plugin("setResolvedUrl")[0][1]
+    assert resolved[1] is True and resolved[2].path.endswith("/Hellfire.2026.mkv")
+    assert resolved[2].mime == "video/x-matroska" and resolved[2].props["contentlookup"] is False
+
+
+def test_guarda_occupato(addon, monkeypatch):
+    api = FakeApi(watch={"stato": "occupato", "messaggio": "C'è già uno streaming in corso da Kodi: riprova più tardi."})
+    monkeypatch.setattr(addon, "client", lambda with_key=True: api)
+    addon.router("?azione=guarda&id=RLD%3AAltro.mkv")
+    assert ("ok", "C'è già uno streaming in corso da Kodi: riprova più tardi.") in fake_kodi.calls
+    assert plugin("setResolvedUrl")[0][1][1] is False
+
+
+def test_guarda_annullato_ferma_il_download(addon, monkeypatch):
+    api = FakeApi(watch={"stato": "avvio", "lavoro": "j1"}, cancel={"annullato": True})
+    monkeypatch.setattr(addon, "client", lambda with_key=True: api)
+    fake_kodi.answers["canceled"] = [True]
+    addon.router("?azione=guarda&id=RLD%3AHellfire.2026.mkv")
+    assert ("cancel", "j1") in api.requests and plugin("setResolvedUrl")[0][1][1] is False
+
+
+def test_chiave_non_valida_propone_di_ricollegare(addon, monkeypatch):
+    monkeypatch.setattr(addon, "client", lambda with_key=True: FakeApi(latest_films=ApiError(401, "Kodi non collegato")))
+    addon.router("?azione=film_novita")
+    assert plugin("yesno") and plugin("endOfDirectory")[-1][2] == {"succeeded": False}
+
+
+def test_serie_con_piu_stagioni_e_con_una(addon, monkeypatch):
+    episode = dict(FILM, stagione=1, episodio=5)
+    api = FakeApi(seasons=[[{"numero": 1, "episodi": [episode]}, {"numero": 2, "episodi": [episode]}],
+                           [{"numero": 1, "episodi": [episode]}]])
+    monkeypatch.setattr(addon, "client", lambda with_key=True: api)
+    addon.router("?azione=serie&q=Nord")
+    labels = [i[1].label for i in plugin("addDirectoryItems")[0][1][1]]
+    assert labels == ["Stagione 1 (1 episodi)", "Stagione 2 (1 episodi)"]
+    addon.router("?azione=serie&q=Nord")  # una stagione sola: subito gli episodi
+    url, item, is_folder = plugin("addDirectoryItems")[1][1][1][0]
+    assert not is_folder and item.tag.info["season"] == 1 and item.tag.info["episode"] == 5
+
+
+def test_collega(addon, monkeypatch):
+    api = FakeApi(pair_start={"codice": "K7P2QX", "token": "t", "scade_tra": 600},
+                  pair_status=[{"stato": "attesa", "chiave": None}, {"stato": "ok", "chiave": "segreta"}])
+    monkeypatch.setattr(addon, "client", lambda with_key=True: api)
+    assert addon.pair() is True
+    assert fake_kodi.settings["chiave"] == "segreta"
+    assert ("pair_start", "Kodi prova") in api.requests
+    assert any("/xdcc kodi K7P2QX" in c[1] for c in fake_kodi.calls if c[0] == "progress")

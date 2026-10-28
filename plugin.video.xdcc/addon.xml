@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addon id="plugin.video.xdcc" name="XDCC" version="0.1.0" provider-name="zawardo">
+    <requires>
+        <import addon="xbmc.python" version="3.0.1"/>
+    </requires>
+    <extension point="xbmc.python.pluginsource" library="main.py">
+        <provides>video</provides>
+    </extension>
+    <extension point="xbmc.addon.metadata">
+        <summary lang="it_IT">Client Kodi per un server personale</summary>
+        <summary lang="en_GB">Kodi client for a personal server</summary>
+        <description lang="it_IT">Novità, ricerca e riproduzione dei video di un server personale, anche mentre li prepara. Serve una chiave rilasciata dal server (Collega a Telegram).</description>
+        <description lang="en_GB">Browse, search and play videos from a personal server, even while it is still preparing them. Requires a key issued by the server (Link to Telegram).</description>
+        <platform>all</platform>
+        <license>Uso privato</license>
+    </extension>
+</addon>

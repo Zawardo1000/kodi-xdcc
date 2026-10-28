@@ -1,0 +1,29 @@
+# Kodi Media Center language file
+# Addon Name: XDCC
+# Addon id: plugin.video.xdcc
+msgid ""
+msgstr ""
+"Language: it_IT\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgctxt "#30100"
+msgid "General"
+msgstr "Generale"
+
+msgctxt "#30101"
+msgid "Server address"
+msgstr "Indirizzo del server"
+
+msgctxt "#30102"
+msgid "Name of this Kodi"
+msgstr "Nome di questo Kodi (lo vedi su Telegram)"
+
+msgctxt "#30103"
+msgid "Key"
+msgstr "Chiave (la imposta «Collega a Telegram»)"
+
+msgctxt "#30104"
+msgid "Link to Telegram"
+msgstr "Collega a Telegram"
