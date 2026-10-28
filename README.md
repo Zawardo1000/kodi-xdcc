@@ -1,3 +1,5 @@
+<p align="center"><img src="plugin.video.xdcc/resources/icon.png" alt="Zawardo XDCC" width="240"></p>
+
 # Addon Kodi per un server personale
 
 `plugin.video.xdcc` è il client Kodi di un server personale: sfoglia novità e ricerche e guarda i video che il
