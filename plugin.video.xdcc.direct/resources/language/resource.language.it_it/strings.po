@@ -1,0 +1,77 @@
+# Kodi Media Center language file
+# Addon Name: Zawardo XDCC Direct
+# Addon id: plugin.video.xdcc.direct
+msgid ""
+msgstr ""
+"Language: it_IT
+"
+"MIME-Version: 1.0
+"
+"Content-Type: text/plain; charset=UTF-8
+"
+"Content-Transfer-Encoding: 8bit
+"
+
+msgctxt "#30200"
+msgid "Sources"
+msgstr "Sorgenti"
+
+msgctxt "#30201"
+msgid "Address of the lists page"
+msgstr "Indirizzo della pagina delle liste"
+
+msgctxt "#30202"
+msgid "IRC server (address:port)"
+msgstr "Server IRC (indirizzo:porta)"
+
+msgctxt "#30203"
+msgid "SSL connection"
+msgstr "Connessione SSL"
+
+msgctxt "#30204"
+msgid "Channel"
+msgstr "Canale"
+
+msgctxt "#30205"
+msgid "IRC nickname"
+msgstr "Nome utente su IRC"
+
+msgctxt "#30208"
+msgid "Or fill in by hand"
+msgstr "Oppure a mano"
+
+msgctxt "#30209"
+msgid "Registered on the bot"
+msgstr "Registrati sul bot"
+
+msgctxt "#30210"
+msgid "Fill in from Telegram"
+msgstr "Compila da Telegram"
+
+msgctxt "#30220"
+msgid "Cards"
+msgstr "Schede"
+
+msgctxt "#30221"
+msgid "Personal TMDB key (optional)"
+msgstr "Chiave TMDB personale (facoltativa)"
+
+msgctxt "#30222"
+msgid "Posters and plots: without Telegram, with your own free TMDB key"
+msgstr "Locandine e trame: senza Telegram, con una chiave TMDB tua (gratuita)"
+
+msgctxt "#30230"
+msgid "Telegram"
+msgstr "Telegram"
+
+msgctxt "#30231"
+msgid "Name of this Kodi"
+msgstr "Nome di questo Kodi (lo vedi su Telegram)"
+
+msgctxt "#30232"
+msgid "Key"
+msgstr "Chiave (la imposta «Compila da Telegram»)"
+
+msgctxt "#30233"
+msgid "Server address"
+msgstr "Indirizzo del server"

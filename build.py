@@ -4,7 +4,8 @@
   repo/<id>/<id>-<versione>.zip (+ .sha256)       gli addon, con l'impronta che Kodi verifica
   repo/<id>/<icona, ...>                          le immagini di <assets>: Kodi le mostra prima di installare
 
-Addon: plugin.video.xdcc e repository.zawardo (quello da installare una volta a mano, poi Kodi aggiorna da solo).
+Addon: plugin.video.xdcc, plugin.video.xdcc.direct e repository.zawardo (quello da installare una volta a mano, poi
+Kodi aggiorna da solo).
 La versione è quella di ogni addon.xml: alzala a ogni modifica, se no Kodi non aggiorna. Poi commit e push.
 """
 
@@ -15,7 +16,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-ADDONS = ["plugin.video.xdcc", "repository.zawardo"]
+ADDONS = ["plugin.video.xdcc", "plugin.video.xdcc.direct", "repository.zawardo"]
 REPO = ROOT / "repo"
 
 

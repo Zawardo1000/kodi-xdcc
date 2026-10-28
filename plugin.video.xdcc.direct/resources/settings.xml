@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<settings version="1">
+    <section id="plugin.video.xdcc.direct">
+        <category id="sorgenti" label="30200">
+            <group id="1" label="30209">
+                <setting id="collega" type="action" label="30210">
+                    <level>0</level>
+                    <data>RunPlugin(plugin://plugin.video.xdcc.direct/?azione=collega)</data>
+                    <control type="button" format="action">
+                        <close>true</close>
+                    </control>
+                </setting>
+            </group>
+            <group id="2" label="30208">
+                <setting id="pagina" type="string" label="30201">
+                    <level>0</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="edit" format="string">
+                        <heading>30201</heading>
+                    </control>
+                </setting>
+                <setting id="server_irc" type="string" label="30202">
+                    <level>0</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="edit" format="string">
+                        <heading>30202</heading>
+                    </control>
+                </setting>
+                <setting id="ssl" type="boolean" label="30203">
+                    <level>0</level>
+                    <default>true</default>
+                    <control type="toggle"/>
+                </setting>
+                <setting id="canale" type="string" label="30204">
+                    <level>0</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="edit" format="string">
+                        <heading>30204</heading>
+                    </control>
+                </setting>
+                <setting id="nick" type="string" label="30205">
+                    <level>0</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="edit" format="string">
+                        <heading>30205</heading>
+                    </control>
+                </setting>
+            </group>
+        </category>
+        <category id="schede" label="30220">
+            <group id="1" label="30222">
+                <setting id="chiave_tmdb" type="string" label="30221">
+                    <level>0</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="edit" format="string">
+                        <heading>30221</heading>
+                        <hidden>true</hidden>
+                    </control>
+                </setting>
+            </group>
+        </category>
+        <category id="telegram" label="30230">
+            <group id="1">
+                <setting id="dispositivo" type="string" label="30231">
+                    <level>0</level>
+                    <default>Kodi Direct</default>
+                    <control type="edit" format="string">
+                        <heading>30231</heading>
+                    </control>
+                </setting>
+                <setting id="chiave" type="string" label="30232">
+                    <level>0</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="edit" format="string">
+                        <heading>30232</heading>
+                        <hidden>true</hidden>
+                    </control>
+                </setting>
+                <setting id="server" type="string" label="30233">
+                    <level>2</level>
+                    <default>https://xdcc.zawardo.duckdns.org</default>
+                    <control type="edit" format="string">
+                        <heading>30233</heading>
+                    </control>
+                </setting>
+            </group>
+            <group id="2">
+                <setting id="nick_ripiego" type="string">
+                    <level>4</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <visible>false</visible>
+                    <control type="edit" format="string"/>
+                </setting>
+                <setting id="nick_occupato" type="string">
+                    <level>4</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <visible>false</visible>
+                    <control type="edit" format="string"/>
+                </setting>
+                <setting id="aggiornato_il" type="string">
+                    <level>4</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <visible>false</visible>
+                    <control type="edit" format="string"/>
+                </setting>
+            </group>
+        </category>
+    </section>
+</settings>

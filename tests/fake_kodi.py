@@ -98,6 +98,9 @@ class Window:
     def setProperty(self, key, value):
         window[key] = value
 
+    def clearProperty(self, key):
+        window.pop(key, None)
+
 
 class Addon:
     def getAddonInfo(self, key):
@@ -108,6 +111,9 @@ class Addon:
 
     def setSetting(self, key, value):
         settings[key] = value
+
+    def openSettings(self):
+        calls.append(("impostazioni",))
 
 
 def _plugin_call(name):

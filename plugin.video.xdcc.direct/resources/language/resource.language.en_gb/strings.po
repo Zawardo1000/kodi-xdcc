@@ -1,0 +1,77 @@
+# Kodi Media Center language file
+# Addon Name: Zawardo XDCC Direct
+# Addon id: plugin.video.xdcc.direct
+msgid ""
+msgstr ""
+"Language: en_GB
+"
+"MIME-Version: 1.0
+"
+"Content-Type: text/plain; charset=UTF-8
+"
+"Content-Transfer-Encoding: 8bit
+"
+
+msgctxt "#30200"
+msgid "Sources"
+msgstr ""
+
+msgctxt "#30201"
+msgid "Address of the lists page"
+msgstr ""
+
+msgctxt "#30202"
+msgid "IRC server (address:port)"
+msgstr ""
+
+msgctxt "#30203"
+msgid "SSL connection"
+msgstr ""
+
+msgctxt "#30204"
+msgid "Channel"
+msgstr ""
+
+msgctxt "#30205"
+msgid "IRC nickname"
+msgstr ""
+
+msgctxt "#30208"
+msgid "Or fill in by hand"
+msgstr ""
+
+msgctxt "#30209"
+msgid "Registered on the bot"
+msgstr ""
+
+msgctxt "#30210"
+msgid "Fill in from Telegram"
+msgstr ""
+
+msgctxt "#30220"
+msgid "Cards"
+msgstr ""
+
+msgctxt "#30221"
+msgid "Personal TMDB key (optional)"
+msgstr ""
+
+msgctxt "#30222"
+msgid "Posters and plots: without Telegram, with your own free TMDB key"
+msgstr ""
+
+msgctxt "#30230"
+msgid "Telegram"
+msgstr ""
+
+msgctxt "#30231"
+msgid "Name of this Kodi"
+msgstr ""
+
+msgctxt "#30232"
+msgid "Key"
+msgstr ""
+
+msgctxt "#30233"
+msgid "Server address"
+msgstr ""
