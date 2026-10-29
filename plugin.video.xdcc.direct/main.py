@@ -69,7 +69,9 @@ def device_label():
         code = "".join(random.choice(_CODE_CHARS) for _ in range(4))
         ADDON.setSetting("codice", code)
     name = ADDON.getSetting("dispositivo").strip() or DEFAULT_DEVICE
-    friendly = xbmc.getInfoLabel("System.FriendlyName").strip()
+    # il nome di Kodi, senza la parte tra parentesi: quando non è cambiato, Kodi ci mette l'IP di casa
+    friendly = re.sub(r"\s*\(.*?\)", "", xbmc.getInfoLabel("System.FriendlyName")).strip()
+    friendly = "" if re.search(r"\d+\.\d+\.\d+\.\d+", friendly) else friendly
     parts = [name]
     if friendly and friendly.lower() != "kodi" and friendly.lower() not in name.lower():
         parts.append(friendly)
@@ -470,6 +472,8 @@ def pair():
             status = api.pair_status(code, token)
             if status.get("stato") == "ok":
                 ADDON.setSetting("chiave", status["chiave"])
+                if status.get("utente"):  # a quale persona su Telegram è collegato questo Kodi
+                    ADDON.setSetting("utente_telegram", str(status["utente"]))
                 apply_config(server().direct_config())
                 xbmcgui.Dialog().notification(TITLE, "Impostazioni compilate da Telegram")
                 xbmc.executebuiltin("Container.Refresh")

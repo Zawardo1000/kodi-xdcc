@@ -17,6 +17,16 @@
                         <heading>30102</heading>
                     </control>
                 </setting>
+                <setting id="utente_telegram" type="string" label="30105">
+                    <level>0</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="edit" format="string">
+                        <heading>30105</heading>
+                    </control>
+                </setting>
                 <setting id="chiave" type="string" label="30103">
                     <level>0</level>
                     <default></default>

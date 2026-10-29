@@ -75,3 +75,7 @@ msgstr "Chiave (la imposta «Compila da Telegram»)"
 msgctxt "#30233"
 msgid "Server address"
 msgstr "Indirizzo del server"
+
+msgctxt "#30234"
+msgid "Linked Telegram user (id)"
+msgstr "Utente Telegram collegato (id, solo informazione)"

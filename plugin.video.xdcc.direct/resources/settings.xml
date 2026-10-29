@@ -83,6 +83,16 @@
                         <heading>30231</heading>
                     </control>
                 </setting>
+                <setting id="utente_telegram" type="string" label="30234">
+                    <level>0</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="edit" format="string">
+                        <heading>30234</heading>
+                    </control>
+                </setting>
                 <setting id="chiave" type="string" label="30232">
                     <level>0</level>
                     <default></default>

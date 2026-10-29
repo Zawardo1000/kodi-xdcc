@@ -101,14 +101,14 @@ def test_compila_da_telegram(addon, monkeypatch):
 
     def server(with_key=True):
         api = FakeApi(pair_start={"codice": "ABC123", "token": "t", "scade_tra": 600},
-                      pair_status=[{"stato": "attesa"}, {"stato": "ok", "chiave": "k-segreta"}],
+                      pair_status=[{"stato": "attesa"}, {"stato": "ok", "chiave": "k-segreta", "utente": 18921256}],
                       direct_config=config)
         servers.append((with_key, fake_kodi.settings.get("chiave"), api))
         return api
 
     monkeypatch.setattr(addon, "server", server)
     addon.router("?azione=collega")
-    assert fake_kodi.settings["chiave"] == "k-segreta"
+    assert fake_kodi.settings["chiave"] == "k-segreta" and fake_kodi.settings["utente_telegram"] == "18921256"
     assert (fake_kodi.settings["pagina"], fake_kodi.settings["server_irc"], fake_kodi.settings["canale"],
             fake_kodi.settings["chiave_tmdb"]) == ("https://liste.example/p.html", "irc.example:6697", "#Canale",
                                                    "chiave-tmdb")
@@ -160,6 +160,10 @@ def test_nome_del_dispositivo_per_telegram(addon):
     assert label == f"Kodi prova · SHIELD · Android · {code}" and len(code) == 4
     assert not set(code) & set("0O1I")  # niente caratteri che si confondono
     assert addon.device_label() == label  # il codice resta quello: è di questa installazione
+    fake_kodi.labels["System.FriendlyName"] = "Kodi (192.168.0.50)"  # predefinito: "Kodi" e l'IP di casa, niente
+    assert addon.device_label() == f"Kodi prova · Android · {code}"
+    fake_kodi.labels["System.FriendlyName"] = "Salotto (192.168.0.50)"  # cambiato: il nome sì, l'IP no
+    assert addon.device_label() == f"Kodi prova · Salotto · Android · {code}"
     fake_kodi.labels["System.FriendlyName"] = "Kodi"  # nome predefinito di Kodi: non dice niente
     fake_kodi.settings["dispositivo"] = ""
     assert addon.device_label() == f"Kodi Direct · Android · {code}"

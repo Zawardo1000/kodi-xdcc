@@ -75,3 +75,7 @@ msgstr ""
 msgctxt "#30233"
 msgid "Server address"
 msgstr ""
+
+msgctxt "#30234"
+msgid "Linked Telegram user (id)"
+msgstr ""
