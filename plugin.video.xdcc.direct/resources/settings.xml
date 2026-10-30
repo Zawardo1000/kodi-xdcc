@@ -73,6 +73,22 @@
                     </control>
                 </setting>
             </group>
+            <group id="2" label="30227">
+                <setting id="trailer" type="integer" label="30223">
+                    <level>0</level>
+                    <default>0</default>
+                    <constraints>
+                        <options>
+                            <option label="30224">0</option>
+                            <option label="30225">1</option>
+                            <option label="30226">2</option>
+                        </options>
+                    </constraints>
+                    <control type="list" format="string">
+                        <heading>30223</heading>
+                    </control>
+                </setting>
+            </group>
         </category>
         <category id="telegram" label="30230">
             <group id="1">

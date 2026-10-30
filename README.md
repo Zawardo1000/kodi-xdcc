@@ -33,6 +33,9 @@ stesso repository (Add-on video → **Zawardo XDCC Direct**).
 - Nome utente IRC: un nome a caso alla prima apertura, modificabile. Se è già preso, lo stesso nome con 3 lettere in
   fondo.
 - Locandine e trame: direttamente da TMDB, con la chiave delle impostazioni (senza chiave, solo i nomi dei file).
+- Finestra Informazioni (tenendo premuto OK): trailer (in italiano, se no in lingua originale), cast, generi,
+  regia e durata. Su Android il trailer si apre nell'app YouTube o SmartTube (impostazioni → Schede), altrove
+  con l'addon YouTube di Kodi.
 - Con i bot: una richiesta alla volta, almeno 3 secondi tra una e l'altra; i salti ravvicinati diventano una
   richiesta sola. In pausa per più di 90 secondi il trasferimento si chiude e libera il posto del bot.
 - Nel menu, **Connessione IRC** dice se si è collegati e nel canale (o l'ultimo problema: espulsi, rifiutati,

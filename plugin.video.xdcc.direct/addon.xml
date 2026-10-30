@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.xdcc.direct" name="Zawardo XDCC Direct" version="0.2.2" provider-name="zawardo">
+<addon id="plugin.video.xdcc.direct" name="Zawardo XDCC Direct" version="0.2.3" provider-name="zawardo">
     <requires>
         <import addon="xbmc.python" version="3.0.1"/>
     </requires>
@@ -14,7 +14,8 @@
         <description lang="en_GB">Latest additions, search and streaming of single video files from XDCC bots, straight from Kodi: nothing is saved, only a little video is kept in memory. Lists page, IRC server and channel go in the settings.</description>
         <platform>all</platform>
         <license>Uso privato</license>
-        <news>0.2.2: aggiornamenti anche quando all'avvio di Kodi la rete non è ancora pronta; in «Versioni» niente più versioni vecchie in cache.
+        <news>0.2.3: nella finestra Informazioni trailer (in italiano se c'è, se no in lingua originale), cast, generi, regia e durata; il trailer si apre nell'app YouTube o SmartTube (impostazioni → Schede).
+0.2.2: aggiornamenti anche quando all'avvio di Kodi la rete non è ancora pronta; in «Versioni» niente più versioni vecchie in cache.
 0.2.1: Z-videoteca in fondo al menu, sopra la connessione IRC.
 0.2.0: Z-videoteca (tieni premuto OK su un film o una serie), con Continua a guardare; le serie si aggiornano da sole; se un film salvato sparisce dai bot si sceglie un'altra versione.
 0.1.7: nel nome per Telegram niente più IP di casa; nelle impostazioni l'utente Telegram collegato (id).

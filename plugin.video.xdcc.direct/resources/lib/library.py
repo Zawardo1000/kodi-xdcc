@@ -6,7 +6,8 @@ nella cartella dati dell'addon. Ogni Kodi ha la sua; gli aggiornamenti dell'addo
   della ricerca, e Kodi ricorda punto di ripresa e "visto" in tutti e due i posti. Se quel file sparisce dai bot si
   sceglie un'altra versione dello stesso film: diventa il "sostituto", ma l'indirizzo resta quello di sempre.
 - Serie: si tiene il titolo da cercare, come le cartelle delle serie: aprendola, gli episodi nuovi ci sono da soli.
-- Le schede (locandina, trama, anno, voto) si salvano all'aggiunta: la videoteca si apre senza chiedere niente.
+- Le schede (locandina, trama, anno, voto, trailer, cast, ...) si salvano all'aggiunta: la videoteca si apre senza
+  chiedere niente.
 """
 
 import json
@@ -15,9 +16,10 @@ import time
 
 from . import lists
 
-_CARD_KEYS = ("titolo_scheda", "trama", "anno", "voto", "locandina", "sfondo")
-FILM_KEYS = ("id", "nome", "dimensione", "titolo") + _CARD_KEYS
-SHOW_KEYS = ("titolo", "cerca") + _CARD_KEYS
+CARD_KEYS = ("titolo_scheda", "trama", "anno", "voto", "locandina", "sfondo",
+             "trailer", "cast", "generi", "regia", "durata")
+FILM_KEYS = ("id", "nome", "dimensione", "titolo") + CARD_KEYS
+SHOW_KEYS = ("titolo", "cerca") + CARD_KEYS
 _FILE_KEYS = ("id", "nome", "dimensione", "titolo")  # di un sostituto
 
 

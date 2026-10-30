@@ -79,3 +79,23 @@ msgstr "Indirizzo del server"
 msgctxt "#30234"
 msgid "Linked Telegram user (id)"
 msgstr "Utente Telegram collegato (id, solo informazione)"
+
+msgctxt "#30223"
+msgid "Play trailers with"
+msgstr "Trailer con"
+
+msgctxt "#30224"
+msgid "YouTube app"
+msgstr "App YouTube"
+
+msgctxt "#30225"
+msgid "SmartTube app"
+msgstr "App SmartTube"
+
+msgctxt "#30226"
+msgid "Kodi YouTube add-on"
+msgstr "Addon YouTube di Kodi"
+
+msgctxt "#30227"
+msgid "Trailer (Information window): the apps only on Android, elsewhere the Kodi YouTube add-on"
+msgstr "Trailer (finestra Informazioni): le app solo su Android, altrove l'addon YouTube di Kodi"

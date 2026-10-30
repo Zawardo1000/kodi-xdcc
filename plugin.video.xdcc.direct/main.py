@@ -10,6 +10,7 @@ Percorsi (plugin://plugin.video.xdcc.direct/?azione=...):
 - stagione&q=...&n=...         episodi di una stagione
 - cerca&tipo=film|serie        tastiera, poi risultati
 - guarda&id=...                fa partire lo streaming e apre il video appena può
+- trailer&v=...                il trailer (YouTube) nell'app scelta nelle impostazioni (Android)
 - videoteca / continua         la Z-videoteca (resources/lib/library.py) e i suoi video lasciati a metà
 - zv_aggiungi / zv_togli       dal menu che si apre tenendo premuto OK su un film, una serie o un episodio
 - collega                      compila pagina, server, canale e chiave TMDB da Telegram (chi è registrato sul bot)
@@ -125,12 +126,26 @@ def size_text(size):
 
 
 def set_info(item, info):
-    """Titolo, tipo, trama, anno, voto, serie, stagione ed episodio: InfoTagVideo da Kodi 20, setInfo per Kodi 19."""
+    """Titolo, tipo, trama, anno, voto, serie, stagione ed episodio; per la finestra Informazioni anche trailer,
+    generi, regia, durata (secondi) e cast ([nome, ruolo, foto]). InfoTagVideo da Kodi 20, setInfo per Kodi 19."""
+    cast = info.get("cast") or []
     try:
         tag = item.getVideoInfoTag()
     except AttributeError:
-        item.setInfo("video", {k: v for k, v in info.items() if v is not None})
+        item.setInfo("video", {k: v for k, v in info.items() if v is not None and k != "cast"})
+        if cast:
+            item.setCast([{"name": n, "role": r, "thumbnail": t, "order": i} for i, (n, r, t) in enumerate(cast)])
         return
+    if info.get("trailer"):
+        tag.setTrailer(info["trailer"])
+    if info.get("genre"):
+        tag.setGenres(info["genre"])
+    if info.get("director"):
+        tag.setDirectors(info["director"])
+    if info.get("duration"):
+        tag.setDuration(info["duration"])
+    if cast:
+        tag.setCast([xbmc.Actor(n, r, i, t) for i, (n, r, t) in enumerate(cast)])
     tag.setTitle(info["title"])
     tag.setMediaType(info["mediatype"])
     tag.setPlot(info.get("plot") or "")
@@ -144,6 +159,40 @@ def set_info(item, info):
         tag.setSeason(info["season"])
     if info.get("episode") is not None:
         tag.setEpisode(info["episode"])
+
+
+_TRAILER_APPS = {"0": "com.google.android.youtube.tv", "1": "org.smarttube.stable"}  # impostazione "trailer"
+_trailer_app = None
+
+
+def trailer_url(key):
+    """Cosa apre il pulsante Trailer della finestra Informazioni: su Android l'app scelta nelle impostazioni (YouTube
+    o SmartTube, passando da azione=trailer); altrove, o se scelto, l'addon YouTube di Kodi."""
+    global _trailer_app
+    if _trailer_app is None:
+        _trailer_app = (_TRAILER_APPS.get(ADDON.getSetting("trailer") or "0", "")
+                        if xbmc.getCondVisibility("System.Platform.Android") else "")
+    if _trailer_app:
+        return plugin_url(azione="trailer", v=key)
+    return "plugin://plugin.video.youtube/play/?" + urlencode({"video_id": key})
+
+
+def card_info(card):
+    """Per la finestra Informazioni: trailer, generi, regia, durata e cast della scheda."""
+    return {"trailer": trailer_url(card["trailer"]) if card.get("trailer") else None,
+            "genre": card.get("generi") or None, "director": card.get("regia") or None,
+            "duration": card["durata"] * 60 if card.get("durata") else None, "cast": card.get("cast") or None}
+
+
+def play_trailer(key):
+    """Il trailer nell'app scelta: Kodi resta sotto, e tornando indietro si è di nuovo qui. A Kodi si dice che non
+    c'è niente da riprodurre (lo fa l'app)."""
+    package = _TRAILER_APPS.get(ADDON.getSetting("trailer") or "0", _TRAILER_APPS["0"])
+    if re.fullmatch(r"[A-Za-z0-9_-]{6,20}", key):  # finisce in un comando di Kodi: solo una chiave di YouTube
+        log(f"trailer {key} con {package}")
+        xbmc.executebuiltin(f"StartAndroidActivity({package},android.intent.action.VIEW,,"
+                            f"https://www.youtube.com/watch?v={key})")
+    xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
 
 
 def set_art(item, card, show=None):
@@ -211,7 +260,7 @@ def playable(entry, show=None, url=None, here=False):
                     "plot": f"{entry['trama']}\n\n{details}" if entry.get("trama") else details,
                     "mediatype": "episode" if episode else "movie", "year": entry.get("anno"),
                     "rating": entry.get("voto"), "tvshowtitle": entry.get("titolo_scheda") if episode else None,
-                    "season": entry.get("stagione"), "episode": entry.get("episodio")})
+                    "season": entry.get("stagione"), "episode": entry.get("episodio"), **card_info(entry)})
     set_art(item, entry)
     if not episode:
         library_menu(item, "film", entry, here=here)
@@ -381,7 +430,7 @@ def show_folder(show, here=False):
     count = f" ({show['episodi']})" if show.get("episodi") else ""
     url, item, is_folder = folder(show["titolo"] + count, azione="serie", q=show["cerca"])
     set_info(item, {"title": show.get("titolo_scheda") or show["titolo"], "plot": show.get("trama"),
-                    "mediatype": "tvshow", "year": show.get("anno"), "rating": show.get("voto")})
+                    "mediatype": "tvshow", "year": show.get("anno"), "rating": show.get("voto"), **card_info(show)})
     set_art(item, show)
     library_menu(item, "serie", show, here=here)
     return url, item, is_folder
@@ -391,7 +440,7 @@ def season_folder(query, season, show):
     url, item, is_folder = folder(f"Stagione {season['numero']} ({len(season['episodi'])} episodi)",
                                   azione="stagione", q=query, n=season["numero"])
     set_info(item, {"title": f"Stagione {season['numero']}", "plot": show.get("trama"), "mediatype": "season",
-                    "tvshowtitle": show.get("titolo_scheda"), "season": season["numero"]})
+                    "tvshowtitle": show.get("titolo_scheda"), "season": season["numero"], **card_info(show)})
     set_art(item, {}, show)
     library_menu(item, "serie", {"cerca": query, **show}, whole_show=True)
     return url, item, is_folder
@@ -479,7 +528,7 @@ def continue_watching():
             found.append((film_shown(owner), None, url, seconds, total))
             continue
         season, episode = lists.episode_of(filename)
-        card = {k: owner[k] for k in ("titolo_scheda", "locandina", "sfondo") if owner.get(k)}
+        card = {k: owner[k] for k in library.CARD_KEYS if owner.get(k) and k != "trama"}  # della serie
         entry = {"id": item_id, "titolo": lists.media_label(filename, 0), "nome": filename, "stagione": season,
                  "episodio": episode, **card}
         found.append((entry, owner, url, seconds, total))
@@ -697,6 +746,9 @@ def router(paramstring):
     action = params.get("azione", "")
     if action == "guarda":
         watch(params["id"])
+        return
+    if action == "trailer":
+        play_trailer(params.get("v", ""))
         return
     if action in ("zv_aggiungi", "zv_togli", "zv_aiuto"):  # dal menu tenendo premuto OK: niente lista da mostrare
         {"zv_aggiungi": library_add, "zv_togli": library_remove, "zv_aiuto": lambda p: library_help()}[action](params)

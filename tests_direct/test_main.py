@@ -398,3 +398,44 @@ def test_aggiungi_anche_dalla_ricerca(addon, monkeypatch):
     assert label == "Aggiungi alla Z-videoteca"
     addon.router(add_show)
     assert [i["tipo"] for i in addon.videoteca().items] == ["film", "serie"]
+
+
+# --- finestra Informazioni: trailer e cast ---
+
+DETAILS = {"trailer": "ItTrailer01", "cast": [["Al", "Max", "https://img.test/al.jpg"], ["Bea", "Sara", ""]],
+           "generi": ["Azione"], "regia": ["Rita"], "durata": 102}
+
+
+def test_informazioni_con_trailer_e_cast(addon, monkeypatch):
+    api = FakeApi(latest_films=[[{**FILM, **CARD, **DETAILS}]] * 2)
+    monkeypatch.setattr(addon, "client", lambda: api)
+    fake_kodi.conditions.add("System.Platform.Android")
+    addon.router("?azione=film_novita")
+    info = listed()[0][1].tag.info
+    assert info["trailer"] == "plugin://plugin.video.xdcc.direct/?azione=trailer&v=ItTrailer01"
+    assert info["cast"] == [("Al", "Max", 0, "https://img.test/al.jpg"), ("Bea", "Sara", 1, "")]
+    assert info["genres"] == ["Azione"] and info["directors"] == ["Rita"] and info["duration"] == 102 * 60
+    # il trailer nell'app (YouTube; nelle impostazioni anche SmartTube): a Kodi niente da riprodurre
+    addon.router("?azione=trailer&v=ItTrailer01")
+    assert ("builtin", "StartAndroidActivity(com.google.android.youtube.tv,android.intent.action.VIEW,,"
+                       "https://www.youtube.com/watch?v=ItTrailer01)") in fake_kodi.calls
+    assert plugin("setResolvedUrl")[-1][1][1] is False
+    fake_kodi.settings["trailer"] = "1"
+    addon.router("?azione=trailer&v=ItTrailer01")
+    assert [c for c in fake_kodi.calls if c[0] == "builtin"][-1][1].startswith("StartAndroidActivity(org.smarttube.stable,")
+    addon.router("?azione=trailer&v=x);Quit(")  # non è una chiave di YouTube: nessun comando
+    assert not any(c[0] == "builtin" and "Quit" in c[1] for c in fake_kodi.calls)
+    # fuori da Android (o se scelto nelle impostazioni): l'addon YouTube di Kodi
+    fake_kodi.conditions.clear()
+    monkeypatch.setattr(addon, "_trailer_app", None)
+    addon.router("?azione=film_novita")
+    assert listed()[0][1].tag.info["trailer"] == "plugin://plugin.video.youtube/play/?video_id=ItTrailer01"
+
+
+def test_trailer_e_cast_restano_nella_videoteca(addon, monkeypatch):
+    monkeypatch.setattr(addon, "client", lambda: FakeApi())
+    addon.videoteca().add_film({**FILM, **CARD, **DETAILS})
+    addon.router("?azione=videoteca")
+    info = listed()[0][1].tag.info
+    assert info["trailer"].endswith("video_id=ItTrailer01") and info["cast"][0][0] == "Al"
+

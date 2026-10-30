@@ -140,6 +140,7 @@ def install():
     xbmc.LOGINFO, xbmc.LOGWARNING = 1, 2
     xbmc.getInfoLabel = lambda label: labels.get(label, "")
     xbmc.getCondVisibility = lambda condition: condition in conditions
+    xbmc.Actor = lambda name="", role="", order=-1, thumbnail="": (name, role, order, thumbnail)
     xbmcvfs = types.ModuleType("xbmcvfs")
     xbmcvfs.translatePath = lambda path: path.replace("special://home/", home["path"])
     xbmcaddon = types.ModuleType("xbmcaddon")

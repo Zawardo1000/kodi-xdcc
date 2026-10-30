@@ -2,6 +2,8 @@
 Schede di film, serie ed episodi da TMDB (locandina, sfondo, trama, anno, voto; per gli episodi titolo, trama e
 immagine), come quelle dell'addon col server. Serve la chiave TMDB delle impostazioni (la mette «Compila da
 Telegram», o la scrive l'utente); senza, niente schede: le liste funzionano uguale.
+Per la finestra Informazioni di Kodi anche trailer (YouTube: in italiano, se no nella lingua originale, se no in
+inglese), cast, generi, regia e durata: una richiesta in più per titolo, che se non va lascia la scheda com'è.
 
 Le liste non aspettano più di WAIT secondi: le schede che arrivano dopo restano in memoria per la volta dopo.
 La chiave viaggia nell'indirizzo: nei log solo il tipo di errore, mai l'indirizzo.
@@ -20,12 +22,14 @@ logger = logging.getLogger("xdcc.direct")
 WAIT = 6
 _TTL = 24 * 3600
 _MISS_TTL = 600
-_PARALLEL = 4
+_PARALLEL = 8  # due richieste per titolo (ricerca e dettagli): le liste non devono aspettare di più
 _USER_AGENT = "plugin.video.xdcc.direct"
 _TMDB = "https://api.themoviedb.org/3"
 _POSTER = "https://image.tmdb.org/t/p/w500"
 _BACKDROP = "https://image.tmdb.org/t/p/w1280"
 _STILL = "https://image.tmdb.org/t/p/w300"
+_PROFILE = "https://image.tmdb.org/t/p/w185"
+_MAX_CAST = 12
 _PLACEHOLDER_RE = re.compile(r"(episodio|episode)\s+\d+", re.I)  # titolo finto di TMDB quando manca quello vero
 
 
@@ -41,6 +45,38 @@ def entry_of(item, title, serie):
     if item.get("episodio") is not None and item.get("stagione") is not None:
         return "e", title, item["stagione"], item["episodio"]
     return ("s" if serie else "f"), title
+
+
+def pick_trailer(videos, original):
+    """Chiave YouTube del trailer: in italiano, se no nella lingua originale, se no in inglese, se no un altro; i
+    trailer prima dei teaser, gli ufficiali prima. None se non ce n'è."""
+    langs = list(dict.fromkeys(["it", original or "en", "en"]))
+    found = [v for v in videos if v.get("site") == "YouTube" and v.get("key") and v.get("type") in ("Trailer", "Teaser")]
+    if not found:
+        return None
+    best = min(found, key=lambda v: (langs.index(v["iso_639_1"]) if v.get("iso_639_1") in langs else len(langs),
+                                     v["type"] != "Trailer", not v.get("official")))
+    return best["key"]
+
+
+def details_of(kind, details):
+    """Trailer, cast, generi, regia e durata dalla risposta di TMDB con videos e credits."""
+    cast = sorted((details.get("credits") or {}).get("cast") or [], key=lambda c: c.get("order", 999))
+    if kind == "movie":
+        directors = [c["name"] for c in (details.get("credits") or {}).get("crew") or []
+                     if c.get("job") == "Director" and c.get("name")]
+        minutes = details.get("runtime")
+    else:
+        directors = [c["name"] for c in details.get("created_by") or [] if c.get("name")]
+        minutes = (details.get("episode_run_time") or [None])[0]
+    return {
+        "trailer": pick_trailer((details.get("videos") or {}).get("results") or [], details.get("original_language")),
+        "cast": [[c["name"], c.get("character") or "", _PROFILE + c["profile_path"] if c.get("profile_path") else ""]
+                 for c in cast[:_MAX_CAST] if c.get("name")],
+        "generi": [g["name"] for g in details.get("genres") or [] if g.get("name")],
+        "regia": directors,
+        "durata": minutes if isinstance(minutes, int) and minutes > 0 else None,
+    }
 
 
 def split_year(title):
@@ -111,13 +147,21 @@ class TmdbCards(_Cards):
         if not results:
             return None
         best = results[0]
+        original = best.get("original_language") or "en"
+        try:
+            details = details_of(kind, await self._get(
+                f"/{kind}/{best['id']}", language="it-IT", append_to_response="videos,credits",
+                include_video_language=",".join(dict.fromkeys(["it", original, "en"]))))
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            logger.warning(f"schede: dettagli di {title!r} non letti ({type(e).__name__})")
+            details = {}
         overview = best.get("overview") or (await self._get(f"/{kind}/{best['id']}", language="en-US")).get("overview") or ""
         date = best.get("release_date") or best.get("first_air_date") or ""
         return {"id": best["id"], "titolo_scheda": best.get("title") or best.get("name"), "trama": overview,
                 "locandina": _POSTER + best["poster_path"] if best.get("poster_path") else None,
                 "sfondo": _BACKDROP + best["backdrop_path"] if best.get("backdrop_path") else None,
                 "anno": int(date[:4]) if date[:4].isdigit() else None,
-                "voto": round(best["vote_average"], 1) if best.get("vote_average") else None}
+                "voto": round(best["vote_average"], 1) if best.get("vote_average") else None, **details}
 
     async def _season(self, tv_id, number):
         episodes = (await self._get(f"/tv/{tv_id}/season/{number}", language="it-IT")).get("episodes", [])
