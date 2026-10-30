@@ -328,11 +328,11 @@ def main_menu():
                  folder("[B]Impostazioni[/B]: pagina delle liste, server IRC e canale", azione="impostazioni")]
         end(items, "files")
     else:
-        end([folder("Z-videoteca", azione="videoteca"),
-             folder("Film · novità", azione="film_novita"),
+        end([folder("Film · novità", azione="film_novita"),
              folder("Serie · novità", azione="serie_novita"),
              folder("Cerca un film", azione="cerca", tipo="film"),
              folder("Cerca una serie", azione="cerca", tipo="serie"),
+             folder("Z-videoteca", azione="videoteca"),
              folder(irc_label(), azione="irc")], "files")
         try:
             client().prefetch()  # le novità si preparano mentre si sceglie

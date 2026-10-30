@@ -37,7 +37,7 @@ def test_menu(addon, monkeypatch):
         irc_status={"collegato": True, "nel_canale": True, "nick": "giulia", "canale": "#c"}, prefetch={"ok": True}))
     addon.router("")
     labels = [i[1].label for i in plugin("addDirectoryItems")[0][1][1]]
-    assert labels == ["Z-videoteca", "Film · novità", "Serie · novità", "Cerca un film", "Cerca una serie",
+    assert labels == ["Film · novità", "Serie · novità", "Cerca un film", "Cerca una serie", "Z-videoteca",
                       "Connessione IRC: collegato come giulia in #c · [I]verifica[/I]"]
     fake_kodi.settings["canale"] = ""
     addon.router("")
