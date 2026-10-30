@@ -13,7 +13,8 @@ Percorsi (plugin://plugin.video.xdcc/?azione=...):
 - collega                      abbinamento con Telegram (anche dal pulsante nelle impostazioni)
 
 Locandina, sfondo, trama, anno e voto arrivano dal server (schede TMDB) quando le ha: senza, solo il nome del file.
-All'apertura (menu principale) controlla se il repository ha una versione più nuova dell'addon (check_update).
+All'apertura (menu principale) controlla se il repository ha una versione più nuova dell'addon (check_update) e
+toglie dalla cache di Kodi gli zip delle versioni vecchie (resources/lib/packages.py).
 """
 
 import random
@@ -29,6 +30,7 @@ import xbmcgui
 import xbmcplugin
 import xbmcvfs
 
+from resources.lib import packages
 from resources.lib.api import USER_AGENT, ApiError, XdccApi
 
 ADDON = xbmcaddon.Addon()
@@ -228,6 +230,14 @@ def main_menu():
               folder("Già sul server", azione="server")]
     end(items, "files")
     check_update()  # dopo il menu, che intanto è già sullo schermo
+    prune_packages()
+
+
+def prune_packages():
+    """Gli zip delle versioni vecchie nella cache di Kodi: in «Versioni» si vede solo il repository."""
+    removed = packages.prune(xbmcvfs.translatePath("special://home/addons/packages/"))
+    if removed:
+        xbmc.log(f"[{TITLE}] tolte dalla cache di Kodi le versioni vecchie: {', '.join(removed)}", xbmc.LOGINFO)
 
 
 def show_folder(show):

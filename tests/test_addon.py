@@ -216,3 +216,16 @@ def test_aggiornamento_senza_la_cache_di_github(addon, monkeypatch):
     addon.router("")
     assert asked == ["https://api.github.com/repos/Zawardo1000/kodi-xdcc/commits/main",
                      f"https://raw.githubusercontent.com/Zawardo1000/kodi-xdcc/{sha}/repo/addons.xml"]
+
+
+def test_zip_vecchi_tolti_all_apertura(addon, monkeypatch, tmp_path):
+    import os
+    packages = tmp_path / "addons" / "packages"
+    packages.mkdir(parents=True)
+    for name in ("plugin.video.xdcc-0.3.2.zip", "plugin.video.altro-2.0.zip"):
+        (packages / name).write_bytes(b"zip")
+        os.utime(packages / name, (1, 1))
+    fake_kodi.home["path"] = str(tmp_path) + "/"
+    monkeypatch.setattr(addon.urllib.request, "urlopen", lambda request, timeout: _Index("0.0.1"))
+    addon.router("")
+    assert os.listdir(packages) == ["plugin.video.altro-2.0.zip"]

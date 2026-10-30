@@ -4,21 +4,27 @@ con il server locale da cui leggono l'addon e il player. Porta e gettone del ser
 della finestra principale, da dove li legge main.py.
 
 Alla prima partenza sceglie a caso il nome utente IRC (impostazioni, si può cambiare).
+Aggiornamenti: appena c'è la rete fa rileggere i repository a Kodi (il suo controllo all'avvio spesso arriva prima
+della rete); toglie dalla cache di Kodi gli zip delle versioni vecchie di questi addon.
 """
 
 import logging
 import re
+import socket
 
 import xbmc
 import xbmcaddon
 import xbmcgui
+import xbmcvfs
 
-from resources.lib import core, names
+from resources.lib import core, names, packages
 
 ADDON_ID = "plugin.video.xdcc.direct"
 TITLE = "Zawardo XDCC Direct"
 PROP_PORT, PROP_TOKEN = "xdccdirect.porta", "xdccdirect.gettone"
 _UPDATE_TRIES = 8
+REPO_HOST = "raw.githubusercontent.com"  # dove sta il repository
+_ONLINE_WAIT = 300  # secondi: senza rete per tanto, lascia stare (Kodi riprova da solo tra un giorno)
 SETTINGS = ("pagina", "server_irc", "ssl", "canale", "nick", "nick_ripiego", "nick_occupato", "chiave_tmdb")
 
 
@@ -67,6 +73,29 @@ def _version(text):
     return tuple(int(n) for n in re.findall(r"\d+", text)[:3])
 
 
+def refresh_repos_when_online(monitor):
+    """All'avvio Kodi rilegge i repository subito, spesso prima che la rete sia pronta (sulla TV: «Could not resolve
+    hostname»), e poi non ci riprova per un giorno: gli aggiornamenti non arrivano. Appena il nome del repository si
+    risolve, gli si fa rileggere una volta. Le richieste le fa Kodi, come a ogni avvio; il servizio nessuna."""
+    for _ in range(_ONLINE_WAIT // 5):
+        try:
+            socket.getaddrinfo(REPO_HOST, 443)
+        except OSError:
+            if monitor.waitForAbort(5):
+                return
+            continue
+        if not monitor.waitForAbort(10):  # la rete appena arrivata: qualche secondo per assestarsi
+            xbmc.log(f"[{TITLE}] rete pronta: Kodi rilegge i repository", xbmc.LOGINFO)
+            xbmc.executebuiltin("UpdateAddonRepos")
+        return
+
+
+def prune_packages():
+    removed = packages.prune(xbmcvfs.translatePath("special://home/addons/packages/"))
+    if removed:
+        xbmc.log(f"[{TITLE}] tolte dalla cache di Kodi le versioni vecchie: {', '.join(removed)}", xbmc.LOGINFO)
+
+
 def main():
     logger = logging.getLogger("xdcc.direct")
     logger.addHandler(_KodiLog())
@@ -84,7 +113,9 @@ def main():
     home.setProperty(PROP_TOKEN, runner.core.token)
     xbmc.log(f"[{TITLE}] servizio pronto", xbmc.LOGINFO)
     monitor = xbmc.Monitor()
+    refresh_repos_when_online(monitor)
     while not monitor.abortRequested():
+        prune_packages()
         if monitor.waitForAbort(60):
             break
         push_update(runner.core)
