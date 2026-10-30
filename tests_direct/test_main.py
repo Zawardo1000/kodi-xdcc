@@ -37,7 +37,7 @@ def test_menu(addon, monkeypatch):
         irc_status={"collegato": True, "nel_canale": True, "nick": "giulia", "canale": "#c"}, prefetch={"ok": True}))
     addon.router("")
     labels = [i[1].label for i in plugin("addDirectoryItems")[0][1][1]]
-    assert labels == ["Film · novità", "Serie · novità", "Cerca un film", "Cerca una serie",
+    assert labels == ["Z-videoteca", "Film · novità", "Serie · novità", "Cerca un film", "Cerca una serie",
                       "Connessione IRC: collegato come giulia in #c · [I]verifica[/I]"]
     fake_kodi.settings["canale"] = ""
     addon.router("")
@@ -204,3 +204,181 @@ def test_punto_di_ripresa_dal_database_di_kodi(addon, monkeypatch, tmp_path):
     assert addon.resume_point() == 1286.842123
     monkeypatch.setattr(addon.sys, "argv", ["plugin://plugin.video.xdcc.direct/", "5", "?azione=guarda&id=AAA%3AAltro.mkv"])
     assert addon.resume_point() == 0.0
+
+
+# --- Z-videoteca ---
+
+CARD = {"titolo_scheda": "Hellfire", "trama": "Fuoco.", "anno": 2026, "locandina": "https://img.test/p.jpg"}
+SHOW = {"titolo": "The Last of Us", "cerca": "The Last of Us", "episodi": 2, "titolo_scheda": "The Last of Us",
+        "locandina": "https://img.test/s.jpg"}
+EPISODE = {"id": "BBB:The.Last.of.Us.S01E02.iTA.1080p.mkv", "titolo": "The Last of Us · S01E02 · 1080p · 1,2 GB",
+           "nome": "The.Last.of.Us.S01E02.iTA.1080p.mkv", "dimensione": 1_300_000_000, "giorno": "", "stagione": 1,
+           "episodio": 2}
+
+
+def listed(n=-1):
+    """Elementi dell'n-esima lista mostrata: (indirizzo, ListItem, cartella)."""
+    return plugin("addDirectoryItems")[n][1][1]
+
+
+def menu(item):
+    """Voci del menu tenendo premuto OK: (etichetta, parametri di RunPlugin)."""
+    return [(label, "?" + command[len("RunPlugin("):-1].partition("?")[2]) for label, command in item.props["menu"]]
+
+
+def test_aggiungi_e_togli_dalla_z_videoteca(addon, monkeypatch):
+    api = FakeApi(latest_films=[[{**FILM, **CARD}]] * 3, latest_shows=[[SHOW]])
+    monkeypatch.setattr(addon, "client", lambda: api)
+    addon.router("?azione=film_novita")
+    [(label, add)] = menu(listed()[0][1])
+    assert label == "Aggiungi alla Z-videoteca"
+    addon.router(add)
+    assert ("notification", "Nella Z-videoteca: Hellfire") in fake_kodi.calls
+    addon.router(add)
+    assert ("notification", "C'è già nella Z-videoteca: Hellfire") in fake_kodi.calls
+    addon.router("?azione=serie_novita")
+    [(label, add_show)] = menu(listed()[0][1])
+    addon.router(add_show)
+    assert ("notification", "Nella Z-videoteca: The Last of Us") in fake_kodi.calls
+
+    addon.router("?azione=videoteca")
+    shown = listed()
+    assert [(i[1].label, i[2]) for i in shown] == [("The Last of Us", True), ("Hellfire 2026 · 1,6 GB", False)]
+    assert shown[0][0] == "plugin://plugin.video.xdcc.direct/?azione=serie&q=The+Last+of+Us"
+    # lo stesso indirizzo delle novità: Kodi ricorda punto di ripresa e "visto" in tutti e due i posti
+    assert shown[1][0] == "plugin://plugin.video.xdcc.direct/?azione=guarda&id=AAA%3AHellfire.2026.mkv"
+    assert shown[1][1].props["art"]["poster"] == "https://img.test/p.jpg"
+    assert shown[1][1].tag.info["plot"].startswith("Fuoco.")
+    [(label, remove)] = menu(shown[1][1])
+    assert label == "Togli dalla Z-videoteca" and "qui=1" in remove
+    addon.router(remove)
+    assert ("notification", "Tolto dalla Z-videoteca: Hellfire") in fake_kodi.calls
+    assert ("builtin", "Container.Refresh") in fake_kodi.calls
+    addon.router("?azione=film_novita")
+    assert menu(listed()[0][1])[0][0] == "Aggiungi alla Z-videoteca"
+
+
+def test_z_videoteca_vuota(addon):
+    addon.router("?azione=videoteca")
+    [(url, item, is_folder)] = listed()
+    assert "Vuota" in item.label and url.endswith("azione=zv_aiuto") and not is_folder
+    addon.router("?azione=zv_aiuto")
+    assert any(c[0] == "ok" and "Aggiungi alla Z-videoteca" in c[1] for c in fake_kodi.calls)
+
+
+def test_da_un_episodio_si_aggiunge_la_serie(addon, monkeypatch):
+    api = FakeApi(show_page={"stagioni": [{"numero": 1, "episodi": [EPISODE]}],
+                             "serie": {"titolo": "The Last of Us", "cerca": "The Last of Us", **CARD}})
+    monkeypatch.setattr(addon, "client", lambda: api)
+    addon.router("?azione=serie&q=The+Last+of+Us")
+    [(label, add)] = menu(listed()[0][1])
+    assert label == "Aggiungi la serie alla Z-videoteca"
+    addon.router(add)
+    saved = addon.videoteca().show("the last of us")
+    assert saved["cerca"] == "The Last of Us" and saved["locandina"] == "https://img.test/p.jpg"
+    addon.router("?azione=serie&q=The+Last+of+Us")
+    assert menu(listed()[0][1])[0][0] == "Togli la serie dalla Z-videoteca"
+
+
+def kodi_db(folder, bookmarks):
+    """Database dei video di Kodi con i punti di ripresa: [(indirizzo, secondi, durata)], dal più vecchio."""
+    import sqlite3
+    folder.mkdir()
+    con = sqlite3.connect(folder / "MyVideos131.db")
+    con.executescript("""CREATE TABLE files (idFile INTEGER PRIMARY KEY, idPath INTEGER, strFilename TEXT);
+        CREATE TABLE bookmark (idBookmark INTEGER PRIMARY KEY, idFile INTEGER, timeInSeconds DOUBLE,
+                               totalTimeInSeconds DOUBLE, type INTEGER);""")
+    for n, (url, seconds, total) in enumerate(bookmarks, 1):
+        con.execute("INSERT INTO files VALUES (?, 1, ?)", (n, url))
+        con.execute("INSERT INTO bookmark VALUES (?, ?, ?, ?, 1)", (n, n, seconds, total))
+    con.commit()
+    con.close()
+
+
+def test_continua_a_guardare(addon, monkeypatch, tmp_path):
+    base = "plugin://plugin.video.xdcc.direct/?azione=guarda&id="
+    kodi_db(tmp_path / "db", [
+        (base + "AAA%3AHellfire.2026.mkv", 1286.8, 5400.0),  # film della videoteca
+        (base + "AAA%3AAltro.Film.2025.mkv", 600.0, 5000.0),  # visto dalle novità, non nella videoteca
+        ("plugin://plugin.video.altro/?id=AAA%3AHellfire.2026.mkv", 60.0, 100.0),  # un altro addon
+        (base + "BBB%3AThe.Last.of.Us.S01E02.iTA.1080p.mkv", 75.0, 3300.0),  # episodio di una serie della videoteca
+    ])
+    real = addon.xbmcvfs.translatePath
+    monkeypatch.setattr(addon.xbmcvfs, "translatePath",
+                        lambda path: str(tmp_path / "db") + "/" if path == "special://database/" else real(path))
+    addon.videoteca().add_film({**FILM, **CARD})
+    addon.videoteca().add_show(SHOW)
+
+    addon.router("?azione=videoteca")
+    first = listed()[0]
+    assert first[1].label == "[B]Continua a guardare[/B] (2)" and first[0].endswith("azione=continua") and first[2]
+    addon.router("?azione=continua")
+    shown = listed()
+    # dal più recente; l'indirizzo è quello salvato da Kodi, così chiede da dove riprendere
+    assert [i[1].label for i in shown] == ["The Last of Us · S01E02 · 1080p · [I]da 1:15[/I]",
+                                           "Hellfire 2026 · 1,6 GB · [I]da 21:26[/I]"]
+    assert shown[0][0] == base + "BBB%3AThe.Last.of.Us.S01E02.iTA.1080p.mkv"
+    assert shown[0][1].tag.info["resumepoint"] == (75.0, 3300.0)
+    assert shown[0][1].tag.info["tvshowtitle"] == "The Last of Us"
+    assert shown[0][1].props["art"]["poster"] == "https://img.test/s.jpg"
+    # tolta la serie dalla videoteca, i suoi episodi spariscono anche da qui
+    [(label, remove)] = menu(shown[0][1])
+    assert label == "Togli la serie dalla Z-videoteca"
+    addon.router(remove)
+    addon.router("?azione=continua")
+    assert [i[1].label for i in listed()] == ["Hellfire 2026 · 1,6 GB · [I]da 21:26[/I]"]
+    addon.router(menu(listed()[0][1])[0][1])  # e così il film
+    addon.router("?azione=videoteca")
+    assert "Continua" not in listed()[0][1].label
+
+
+def test_film_sparito_si_sceglie_un_altra_versione(addon, monkeypatch):
+    other = {"id": "BBB:Hellfire.2026.iTA.720p.mkv", "titolo": "Hellfire 2026 · 720p · 858 MB",
+             "nome": "Hellfire.2026.iTA.720p.mkv", "dimensione": 900_000_000}
+    remake = {"id": "AAA:Hellfire.2025.mkv", "titolo": "Hellfire 2025 · 1,1 GB", "nome": "Hellfire.2025.mkv",
+              "dimensione": 1_200_000_000}
+    api = FakeApi(watch=[{"stato": "avvio", "lavoro": "j1"}, {"stato": "avvio", "lavoro": "j2"},
+                         {"stato": "pronto", "url": "http://127.0.0.1:1/v/g/j3/Hellfire.2026.iTA.720p.mkv"}],
+                  status=[{"stato": "errore", "messaggio": "Non è più nelle liste.", "mancante": True},
+                          {"stato": "pronto", "url": "http://127.0.0.1:1/v/g/j2/Hellfire.2026.iTA.720p.mkv"}],
+                  search=[[{**FILM, "id": "BBB:Hellfire.2026.mkv"}, other, remake]])
+    monkeypatch.setattr(addon, "client", lambda: api)
+    addon.videoteca().add_film({**FILM, **CARD})
+    fake_kodi.answers["select"] = 0
+    addon.router("?azione=guarda&id=AAA%3AHellfire.2026.mkv")
+    assert ("search", "Hellfire 2026", "film") in api.requests
+    # solo le altre versioni dello stesso film (non lo stesso file da un'altra lista, non un altro anno)
+    assert ("select", "«Hellfire» non c'è più: scegli un'altra versione",
+            ["Hellfire 2026 · 720p · 858 MB"]) in fake_kodi.calls
+    assert ("watch", "BBB:Hellfire.2026.iTA.720p.mkv", False, 0.0) in api.requests
+    assert plugin("setResolvedUrl")[0][1][1] is True
+    # d'ora in poi, dallo stesso indirizzo, si guarda direttamente la nuova versione
+    assert addon.videoteca().film_by_id(FILM["id"])["sostituto"]["nome"] == "Hellfire.2026.iTA.720p.mkv"
+    api.requests.clear()
+    addon.router("?azione=guarda&id=AAA%3AHellfire.2026.mkv")
+    assert api.requests[0] == ("watch", "BBB:Hellfire.2026.iTA.720p.mkv", False, 0.0)
+    addon.router("?azione=videoteca")
+    assert listed()[0][1].label == "Hellfire 2026 · 720p · 858 MB"
+
+
+def test_film_sparito_scelta_annullata(addon, monkeypatch):
+    other = {"id": "BBB:Hellfire.2026.iTA.720p.mkv", "titolo": "Hellfire 2026 · 720p", "nome": "Hellfire.2026.iTA.720p.mkv",
+             "dimensione": 900_000_000}
+    api = FakeApi(watch={"stato": "avvio", "lavoro": "j1"},
+                  status={"stato": "errore", "messaggio": "Non è più nelle liste.", "mancante": True},
+                  search=[[other]])
+    monkeypatch.setattr(addon, "client", lambda: api)
+    addon.videoteca().add_film(FILM)
+    addon.router("?azione=guarda&id=AAA%3AHellfire.2026.mkv")  # select: -1, annullato
+    assert plugin("setResolvedUrl")[0][1][1] is False
+    assert "sostituto" not in addon.videoteca().film_by_id(FILM["id"])
+
+
+def test_film_sparito_fuori_dalla_videoteca_solo_il_messaggio(addon, monkeypatch):
+    api = FakeApi(watch={"stato": "avvio", "lavoro": "j1"},
+                  status={"stato": "errore", "messaggio": "Non è più nelle liste.", "mancante": True})
+    monkeypatch.setattr(addon, "client", lambda: api)
+    addon.router("?azione=guarda&id=AAA%3AHellfire.2026.mkv")
+    assert ("ok", "Non è più nelle liste.") in fake_kodi.calls
+    assert not [r for r in api.requests if r[0] == "search"]
+    assert plugin("setResolvedUrl")[0][1][1] is False

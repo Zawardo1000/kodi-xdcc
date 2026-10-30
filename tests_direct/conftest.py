@@ -20,12 +20,13 @@ SETTINGS = {"pagina": "https://liste.test/start.html", "server_irc": "irc.test:6
 
 
 @pytest.fixture
-def addon(monkeypatch):
+def addon(monkeypatch, tmp_path):
     """main.py importato come lo avvia Kodi (handle 5), col finto Kodi azzerato e le impostazioni compilate."""
     fake_kodi.reset()
     fake_kodi.settings.clear()
     fake_kodi.settings.update(SETTINGS)
-    fake_kodi.info.update({"id": "plugin.video.xdcc.direct", "version": "0.1.0"})
+    fake_kodi.info.update({"id": "plugin.video.xdcc.direct", "version": "0.1.0",
+                           "profile": str(tmp_path / "addon_data") + "/"})  # qui la Z-videoteca
     fake_kodi.window.update({"xdccdirect.porta": "1234", "xdccdirect.gettone": "g"})
     monkeypatch.setattr(sys, "argv", ["plugin://plugin.video.xdcc.direct/", "5", ""])
 

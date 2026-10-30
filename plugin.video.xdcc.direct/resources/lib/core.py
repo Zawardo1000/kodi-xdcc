@@ -32,6 +32,7 @@ _PAGES_TTL = 6 * 3600
 _LATEST_TTL = 900
 _SEARCH_TTL = 600
 _MAX_RELEASES = 200
+_MISSING = "Non è più nelle liste."
 _USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 _HOST_RE = re.compile(r"[A-Za-z0-9.-]{1,253}")
 _CHANNEL_RE = re.compile(r"[#&][^\s,\x07]{1,49}")
@@ -91,7 +92,7 @@ class Core:
         self._cards = self._cards_key = None
         self.stream = None
         self._starting = {}  # streaming in preparazione (si cercano i mirror): sid -> (nome, task)
-        self._failed = {}  # sid -> messaggio, per stato() dopo un errore in preparazione
+        self._failed = {}  # sid -> (messaggio, il file non c'è più), per stato() dopo un errore in preparazione
         self._prefetching = None
         self.update_target = None  # versione nuova dell'addon vista all'apertura: service.py insiste finché arriva
         self.update_tries = 0
@@ -350,7 +351,7 @@ class Core:
             same = [r for r in releases if r.playable and r.parts[0].filename == filename]
             release = next((r for r in same if r.site == site), same[0] if same else None)
             if release is None:
-                raise ApiError(404, "Non è più nelle liste.")
+                raise ApiError(404, _MISSING)
             irc, requester = self._irc_for(config)
             stream = Stream(sid, filename, list(release.parts[0].sources), release.size, irc.session, requester)
             stream.on_error = self.notify
@@ -359,9 +360,9 @@ class Core:
             self.stream = stream
             stream.start()
         except ApiError as e:
-            self._failed[sid] = e.message
+            self._failed[sid] = (e.message, e.message == _MISSING)
         except (IrcError, OSError) as e:
-            self._failed[sid] = f"Non riesco a partire ({type(e).__name__})."
+            self._failed[sid] = (f"Non riesco a partire ({type(e).__name__}).", False)
         finally:
             self._starting.pop(sid, None)
 
@@ -369,7 +370,9 @@ class Core:
         if sid in self._starting:
             return {"stato": "attesa", "messaggio": "Cerco il file nelle liste…", "ricevuti": 0, "totale": 100}
         if sid in self._failed:
-            return {"stato": "errore", "messaggio": self._failed.pop(sid)}
+            message, missing = self._failed.pop(sid)
+            # mancante: l'addon (Z-videoteca) può proporre un'altra versione dello stesso film
+            return {"stato": "errore", "messaggio": message, **({"mancante": True} if missing else {})}
         stream = self.stream_of(sid)
         if stream is None:
             return {"stato": "errore", "messaggio": "Streaming interrotto: riprova."}

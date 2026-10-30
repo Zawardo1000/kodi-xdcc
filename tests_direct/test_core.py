@@ -156,6 +156,25 @@ def test_guarda_e_salti_dal_server_locale(fake_sites):
     assert net.nicks == ["giulia"] and any(line == "JOIN #canale" for line in net.lines)
 
 
+def test_file_sparito_dalle_liste(fake_sites):
+    """Il file non c'è più: l'errore lo dice («mancante»), così la Z-videoteca propone un'altra versione."""
+    async def run():
+        core = core_module.Core(lambda: settings())
+        await core.start(ports=(0,))
+        try:
+            started = await core.api("guarda", {"id": "AAA:Sparito.2020.iTA.mkv"})
+            deadline = time.monotonic() + 20
+            status = core.status(started["lavoro"])
+            while status["stato"] == "attesa" and time.monotonic() < deadline:
+                await asyncio.sleep(0.05)
+                status = core.status(started["lavoro"])
+            return status
+        finally:
+            await core.close()
+
+    assert asyncio.run(run()) == {"stato": "errore", "messaggio": "Non è più nelle liste.", "mancante": True}
+
+
 def test_connessione_chiusa_mentre_aspetta():
     """Kodi chiude la connessione (salto, stop) mentre la lettura aspetta i dati: la lettura finisce subito."""
     import socket

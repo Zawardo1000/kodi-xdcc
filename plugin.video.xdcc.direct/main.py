@@ -10,6 +10,8 @@ Percorsi (plugin://plugin.video.xdcc.direct/?azione=...):
 - stagione&q=...&n=...         episodi di una stagione
 - cerca&tipo=film|serie        tastiera, poi risultati
 - guarda&id=...                fa partire lo streaming e apre il video appena può
+- videoteca / continua         la Z-videoteca (resources/lib/library.py) e i suoi video lasciati a metà
+- zv_aggiungi / zv_togli       dal menu che si apre tenendo premuto OK su un film, una serie o un episodio
 - collega                      compila pagina, server, canale e chiave TMDB da Telegram (chi è registrato sul bot)
 - impostazioni                 apre le impostazioni
 - irc                          verifica la connessione IRC (server, canale, risposta del server) e mostra com'è
@@ -18,6 +20,7 @@ Con la chiave di Telegram, all'apertura (una volta al giorno) rilegge dal server
 TMDB: se cambiano, si aggiornano da soli. Le schede (locandine, trame) il servizio le chiede direttamente a TMDB. All'apertura controlla anche se c'è una versione più nuova dell'addon.
 """
 
+import json
 import os
 import random
 import re
@@ -33,7 +36,7 @@ import xbmcgui
 import xbmcplugin
 import xbmcvfs
 
-from resources.lib import names
+from resources.lib import library, lists, names
 from resources.lib.api import USER_AGENT, ApiError, ServerApi, ServiceApi
 
 ADDON = xbmcaddon.Addon()
@@ -154,16 +157,55 @@ def set_art(item, card, show=None):
         item.setArt(art)
 
 
+def set_resume(item, seconds, total):
+    """Punto di ripresa sull'elemento (la barra di avanzamento nelle liste): InfoTagVideo da Kodi 20."""
+    try:
+        item.getVideoInfoTag().setResumePoint(seconds, total)
+    except AttributeError:
+        item.setProperty("ResumeTime", str(seconds))
+        item.setProperty("TotalTime", str(total))
+
+
 def folder(label, **params):
     return plugin_url(**params), xbmcgui.ListItem(label=label), True
 
 
-def playable(entry):
+_library = None
+
+
+def videoteca():
+    """La Z-videoteca di questo Kodi, nella cartella dati dell'addon (letta una volta per apertura)."""
+    global _library
+    if _library is None:
+        _library = library.Library(os.path.join(xbmcvfs.translatePath(ADDON.getAddonInfo("profile")),
+                                                "videoteca.json"))
+    return _library
+
+
+def library_menu(item, kind, data, whole_show=False, here=False):
+    """Voce del menu che si apre tenendo premuto OK: «Aggiungi alla Z-videoteca» o, se c'è già, «Togli».
+    kind "film" o "serie", data i suoi campi (con la scheda); whole_show: da un episodio o una stagione, la voce è per
+    la serie; here: dentro la videoteca, dove dopo aver tolto la lista si aggiorna."""
+    present = videoteca().film(data["nome"]) if kind == "film" else videoteca().show(data["cerca"])
+    what = "la serie " if whole_show else ""
+    if present:
+        params = {"azione": "zv_togli", "tipo": kind, "chiave": data["nome"] if kind == "film" else data["cerca"]}
+        label, url = f"Togli {what}dalla Z-videoteca", plugin_url(**params, **({"qui": "1"} if here else {}))
+    else:
+        saved = library.film_data(data) if kind == "film" else library.show_data(data)
+        label = f"Aggiungi {what}alla Z-videoteca"
+        url = plugin_url(azione="zv_aggiungi", tipo=kind, dati=json.dumps(saved, ensure_ascii=False, separators=(",", ":")))
+    item.addContextMenuItems([(label, f"RunPlugin({url})")])
+
+
+def playable(entry, show=None, url=None, here=False):
     """Un file da guardare: si apre con azione=guarda, che risolve l'indirizzo al momento (setResolvedUrl). Il
-    percorso resta lo stesso tra una volta e l'altra, così Kodi ricorda il punto in cui si era arrivati."""
+    percorso resta lo stesso tra una volta e l'altra, così Kodi ricorda il punto in cui si era arrivati.
+    show: la serie di un episodio (per la Z-videoteca); url: un indirizzo già salvato da Kodi (Continua a guardare)."""
     item = xbmcgui.ListItem(label=entry["titolo"])
     item.setProperty("IsPlayable", "true")
-    details = f"{entry['nome']}\n{size_text(entry['dimensione'])}" + (f" · {entry['giorno']}" if entry.get("giorno") else "")
+    details = entry["nome"] + (f"\n{size_text(entry['dimensione'])}" if entry.get("dimensione") else "") + (
+        f" · {entry['giorno']}" if entry.get("giorno") else "")
     episode = entry.get("episodio") is not None
     set_info(item, {"title": entry.get("titolo_episodio" if episode else "titolo_scheda") or entry["titolo"],
                     "plot": f"{entry['trama']}\n\n{details}" if entry.get("trama") else details,
@@ -171,7 +213,11 @@ def playable(entry):
                     "rating": entry.get("voto"), "tvshowtitle": entry.get("titolo_scheda") if episode else None,
                     "season": entry.get("stagione"), "episode": entry.get("episodio")})
     set_art(item, entry)
-    return plugin_url(azione="guarda", id=entry["id"]), item, False
+    if not episode:
+        library_menu(item, "film", entry, here=here)
+    elif show and show.get("cerca"):
+        library_menu(item, "serie", show, whole_show=True, here=here)
+    return url or plugin_url(azione="guarda", id=entry["id"]), item, False
 
 
 def end(items, content="videos"):
@@ -282,7 +328,8 @@ def main_menu():
                  folder("[B]Impostazioni[/B]: pagina delle liste, server IRC e canale", azione="impostazioni")]
         end(items, "files")
     else:
-        end([folder("Film · novità", azione="film_novita"),
+        end([folder("Z-videoteca", azione="videoteca"),
+             folder("Film · novità", azione="film_novita"),
              folder("Serie · novità", azione="serie_novita"),
              folder("Cerca un film", azione="cerca", tipo="film"),
              folder("Cerca una serie", azione="cerca", tipo="serie"),
@@ -329,11 +376,14 @@ def check_irc():
     xbmcgui.Dialog().ok(TITLE, lines(text))
 
 
-def show_folder(show):
-    url, item, is_folder = folder(f"{show['titolo']} ({show['episodi']})", azione="serie", q=show["cerca"])
+def show_folder(show, here=False):
+    """Cartella di una serie (anche nella Z-videoteca, dove il numero di episodi non si sa senza cercare)."""
+    count = f" ({show['episodi']})" if show.get("episodi") else ""
+    url, item, is_folder = folder(show["titolo"] + count, azione="serie", q=show["cerca"])
     set_info(item, {"title": show.get("titolo_scheda") or show["titolo"], "plot": show.get("trama"),
                     "mediatype": "tvshow", "year": show.get("anno"), "rating": show.get("voto")})
     set_art(item, show)
+    library_menu(item, "serie", show, here=here)
     return url, item, is_folder
 
 
@@ -343,6 +393,7 @@ def season_folder(query, season, show):
     set_info(item, {"title": f"Stagione {season['numero']}", "plot": show.get("trama"), "mediatype": "season",
                     "tvshowtitle": show.get("titolo_scheda"), "season": season["numero"]})
     set_art(item, {}, show)
+    library_menu(item, "serie", {"cerca": query, **show}, whole_show=True)
     return url, item, is_folder
 
 
@@ -352,19 +403,127 @@ def show_list(shows):
 
 def show_seasons(query):
     page = client().show_page(query)
-    seasons = page["stagioni"]
+    seasons, show = page["stagioni"], {"cerca": query, **page["serie"]}
     if not seasons:
         xbmcgui.Dialog().notification(TITLE, "Nessun episodio guardabile (solo file singoli)")
         xbmcplugin.endOfDirectory(HANDLE, succeeded=False)
     elif len(seasons) == 1:
-        end([playable(e) for e in seasons[0]["episodi"]], "episodes")
+        end([playable(e, show) for e in seasons[0]["episodi"]], "episodes")
     else:
-        end([season_folder(query, s, page["serie"]) for s in seasons], "seasons")
+        end([season_folder(query, s, show) for s in seasons], "seasons")
 
 
 def show_season(query, number):
-    season = next((s for s in client().show_page(query)["stagioni"] if str(s["numero"]) == str(number)), None)
-    end([playable(e) for e in season["episodi"]] if season else [], "episodes")
+    page = client().show_page(query)
+    season = next((s for s in page["stagioni"] if str(s["numero"]) == str(number)), None)
+    end([playable(e, {"cerca": query, **page["serie"]}) for e in season["episodi"]] if season else [], "episodes")
+
+
+def film_shown(film):
+    """Un film della Z-videoteca com'è adesso: se il file è stato sostituito, nome e dimensione del sostituto (l'id,
+    cioè l'indirizzo, resta quello di sempre)."""
+    other = film.get("sostituto") or {}
+    return {**film, **{k: v for k, v in other.items() if k != "id"}}
+
+
+def show_library():
+    """La Z-videoteca: «Continua a guardare» (se c'è qualcosa a metà), poi film e serie, gli ultimi aggiunti prima.
+    Niente richieste: le schede sono salvate."""
+    items = []
+    started = continue_watching()
+    if started:
+        items.append(folder(f"[B]Continua a guardare[/B] ({len(started)})", azione="continua"))
+    for entry in videoteca().newest_first():
+        items.append(playable(film_shown(entry), here=True) if entry["tipo"] == "film" else show_folder(entry, here=True))
+    if not items:
+        item = xbmcgui.ListItem(label="Vuota: tieni premuto OK su un film o una serie e scegli «Aggiungi alla "
+                                      "Z-videoteca»")
+        items.append((plugin_url(azione="zv_aiuto"), item, False))
+    end(items, "videos")
+
+
+def library_help():
+    xbmcgui.Dialog().ok(TITLE, lines(
+        "Nelle novità o nella ricerca tieni premuto OK su un film o su una serie (o un suo episodio) e scegli "
+        "«Aggiungi alla Z-videoteca».\n\nLe serie restano aggiornate: gli episodi nuovi compaiono da soli."))
+
+
+def started_videos():
+    """Video di questo addon con un punto di ripresa nel database di Kodi (in sola lettura): [(indirizzo, secondi,
+    durata)], dal più recente. Kodi lo toglie da sé quando un video si guarda fino in fondo."""
+    rows = video_db("SELECT f.strFilename, b.timeInSeconds, b.totalTimeInSeconds FROM bookmark b "
+                    "JOIN files f ON b.idFile = f.idFile WHERE b.type = 1 ORDER BY b.idBookmark DESC")
+    seen, found = set(), []
+    for url, seconds, total in rows:
+        if url and url.startswith(BASE + "?") and url not in seen:
+            seen.add(url)
+            found.append((url, float(seconds or 0), float(total or 0)))
+    return found
+
+
+def continue_watching():
+    """Video della Z-videoteca lasciati a metà: film aggiunti (o i loro sostituti) ed episodi delle serie aggiunte.
+    [(elemento, serie o None, indirizzo, secondi, durata)]. Un film o una serie tolti dalla videoteca spariscono
+    anche da qui (il punto di ripresa di Kodi resta: rimettendoli, ricompaiono)."""
+    found = []
+    for url, seconds, total in started_videos():
+        params = dict(parse_qsl(url.partition("?")[2]))
+        if params.get("azione") != "guarda":
+            continue
+        item_id = params.get("id", "")
+        filename = item_id.partition(":")[2]
+        owner = videoteca().owner(filename) if filename else None
+        if owner is None:
+            continue
+        if owner["tipo"] == "film":
+            found.append((film_shown(owner), None, url, seconds, total))
+            continue
+        season, episode = lists.episode_of(filename)
+        card = {k: owner[k] for k in ("titolo_scheda", "locandina", "sfondo") if owner.get(k)}
+        entry = {"id": item_id, "titolo": lists.media_label(filename, 0), "nome": filename, "stagione": season,
+                 "episodio": episode, **card}
+        found.append((entry, owner, url, seconds, total))
+    return found
+
+
+def clock(seconds):
+    seconds = int(seconds)
+    return f"{seconds // 3600}:{seconds // 60 % 60:02d}:{seconds % 60:02d}" if seconds >= 3600 else \
+        f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def show_continue():
+    items = []
+    for entry, show, url, seconds, total in continue_watching():
+        entry = {**entry, "titolo": f"{entry['titolo']} · [I]da {clock(seconds)}[/I]"}
+        url, item, is_folder = playable(entry, show, url=url, here=True)
+        set_resume(item, seconds, total)
+        items.append((url, item, is_folder))
+    end(items, "videos")
+
+
+def library_add(params):
+    """Dal menu tenendo premuto OK (RunPlugin: niente lista da mostrare)."""
+    try:
+        data = json.loads(params.get("dati") or "")
+    except ValueError:
+        return
+    if not isinstance(data, dict):
+        return
+    film = params.get("tipo") == "film"
+    added = videoteca().add_film(data) if film else videoteca().add_show(data)
+    name = data.get("titolo_scheda") or (lists.short_title(data.get("nome", "")) if film else data.get("cerca"))
+    xbmcgui.Dialog().notification(TITLE, f"Nella Z-videoteca: {name}" if added else f"C'è già nella Z-videoteca: {name}")
+
+
+def library_remove(params):
+    key = params.get("chiave", "")
+    gone = videoteca().remove_film(key) if params.get("tipo") == "film" else videoteca().remove_show(key)
+    if gone:
+        name = gone.get("titolo_scheda") or gone.get("cerca") or lists.short_title(gone.get("nome", ""))
+        xbmcgui.Dialog().notification(TITLE, f"Tolto dalla Z-videoteca: {name}")
+        if params.get("qui"):  # dentro la videoteca o in Continua a guardare: sparisce subito
+            xbmc.executebuiltin("Container.Refresh")
 
 
 def search(kind):
@@ -405,23 +564,57 @@ def wait_until_ready(api, job, item_id):
     return None
 
 
+def start(api, item_id, resume, seconds):
+    """Fa partire lo streaming e aspetta che il video possa partire: lo stato finale (None se annullato)."""
+    result = api.watch(item_id, resume, seconds)
+    log(f"guarda {item_id} ({' '.join(sys.argv[3:]) or 'senza ripresa'}): {result.get('stato')} "
+        f"{result.get('lavoro') or result.get('messaggio') or ''}")
+    if result.get("stato") == "avvio":
+        result = wait_until_ready(api, result["lavoro"], item_id)
+    return result
+
+
+def other_version(api, film):
+    """Il file di un film della Z-videoteca non c'è più: le altre versioni dello stesso film (stesso titolo e anno)
+    nelle liste, da scegliere. -> l'elemento scelto, o None."""
+    gone = {film["nome"], (film.get("sostituto") or {}).get("nome")}
+    title = film.get("titolo_scheda") or lists.short_title(film["nome"])
+    try:
+        found = api.search(lists.short_title(film["nome"]), "film")
+    except ApiError as e:
+        xbmcgui.Dialog().ok(TITLE, lines(f"«{title}» non c'è più nelle liste.\n\n{e.message}"))
+        return None
+    others = [e for e in found if library.same_film(e["nome"], film["nome"]) and e["nome"] not in gone]
+    if not others:
+        xbmcgui.Dialog().ok(TITLE, lines(f"«{title}» non c'è più nelle liste, e non ne trovo altre versioni."))
+        return None
+    choice = xbmcgui.Dialog().select(f"«{title}» non c'è più: scegli un'altra versione", [e["titolo"] for e in others])
+    return others[choice] if choice >= 0 else None
+
+
 def watch(item_id):
+    film = videoteca().film_by_id(item_id)  # dalla Z-videoteca: forse un'altra versione al posto di quella sparita
+    target = ((film or {}).get("sostituto") or {}).get("id") or item_id
     result = None
     try:
         api = client()
         resume = "resume:true" in sys.argv[3:]
-        result = api.watch(item_id, resume, resume_point() if resume else 0.0)
-        log(f"guarda {item_id} ({' '.join(sys.argv[3:]) or 'senza ripresa'}): {result.get('stato')} "
-            f"{result.get('lavoro') or result.get('messaggio') or ''}")
-        if result.get("stato") == "avvio":
-            result = wait_until_ready(api, result["lavoro"], item_id)
+        seconds = resume_point() if resume else 0.0
+        result = start(api, target, resume, seconds)
+        if film and result and result.get("mancante"):  # solo se quella salvata non c'è più
+            other = other_version(api, film)
+            result = None
+            if other:
+                videoteca().replace(item_id, other)  # d'ora in poi si guarda questa, dallo stesso indirizzo
+                target = other["id"]
+                result = start(api, target, resume, seconds)
     except ApiError as e:
         show_error(e)
         result = None
     if result and result.get("stato") == "pronto":
         item = xbmcgui.ListItem(path=result["url"])
         item.setContentLookup(False)  # niente richieste di prova: il tipo si sa dall'estensione
-        item.setMimeType(_MIME.get(item_id.rsplit(".", 1)[-1].lower(), "video/x-matroska"))
+        item.setMimeType(_MIME.get(target.rsplit(".", 1)[-1].lower(), "video/x-matroska"))
         xbmcplugin.setResolvedUrl(HANDLE, True, item)
         return
     if result and result.get("messaggio"):
@@ -429,25 +622,29 @@ def watch(item_id):
     xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
 
 
-def resume_point():
-    """Secondi del punto di ripresa che Kodi ha salvato per questo video (dal suo database, in sola lettura); 0 se
-    non c'è. Il servizio scarica quel punto prima di far partire il video."""
-    url = BASE + (sys.argv[2] if len(sys.argv) > 2 else "")
+def video_db(sql, args=()):
+    """Righe dal database dei video di Kodi (il più nuovo, in sola lettura); [] se non si legge."""
     try:
         folder = xbmcvfs.translatePath("special://database/")
         names = [n for n in os.listdir(folder) if re.fullmatch(r"MyVideos\d+\.db", n)]
         newest = max(names, key=lambda n: int(re.sub(r"\D", "", n)))
         con = sqlite3.connect(f"file:{os.path.join(folder, newest)}?mode=ro", uri=True, timeout=3)
         try:
-            row = con.execute("SELECT b.timeInSeconds FROM bookmark b JOIN files f ON b.idFile = f.idFile "
-                              "WHERE b.type = 1 AND f.strFilename = ? ORDER BY b.idBookmark DESC LIMIT 1",
-                              (url,)).fetchone()
+            return con.execute(sql, args).fetchall()
         finally:
             con.close()
-        return float(row[0]) if row else 0.0
     except (OSError, ValueError, sqlite3.Error) as e:
-        log(f"punto di ripresa non letto ({type(e).__name__})")
-        return 0.0
+        log(f"database dei video non letto ({type(e).__name__})")
+        return []
+
+
+def resume_point():
+    """Secondi del punto di ripresa che Kodi ha salvato per questo video; 0 se non c'è. Il servizio scarica quel
+    punto prima di far partire il video."""
+    url = BASE + (sys.argv[2] if len(sys.argv) > 2 else "")
+    rows = video_db("SELECT b.timeInSeconds FROM bookmark b JOIN files f ON b.idFile = f.idFile "
+                    "WHERE b.type = 1 AND f.strFilename = ? ORDER BY b.idBookmark DESC LIMIT 1", (url,))
+    return float(rows[0][0]) if rows else 0.0
 
 
 def pair():
@@ -501,6 +698,9 @@ def router(paramstring):
     if action == "guarda":
         watch(params["id"])
         return
+    if action in ("zv_aggiungi", "zv_togli", "zv_aiuto"):  # dal menu tenendo premuto OK: niente lista da mostrare
+        {"zv_aggiungi": library_add, "zv_togli": library_remove, "zv_aiuto": lambda p: library_help()}[action](params)
+        return
     if action in ("collega", "impostazioni", "irc"):
         if action == "collega":
             pair()
@@ -523,6 +723,10 @@ def router(paramstring):
             show_season(params["q"], params["n"])
         elif action == "cerca":
             search(params.get("tipo", "film"))
+        elif action == "videoteca":
+            show_library()
+        elif action == "continua":
+            show_continue()
         else:
             main_menu()
     except ApiError as e:

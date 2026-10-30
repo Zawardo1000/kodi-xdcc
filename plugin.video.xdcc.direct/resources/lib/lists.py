@@ -299,7 +299,8 @@ def media_label(name, size):
         info.append(m[1].lower())
     if _X265_RE.search(name):
         info.append("x265")
-    info.append(fmt_size(size))
+    if size:  # (non si sa per gli episodi in «Continua a guardare»)
+        info.append(fmt_size(size))
     group = _GROUP_RE.search(_VIDEO_EXT_RE.sub("", name))
     if group:
         info.append(group[1])
@@ -337,15 +338,18 @@ def latest_shows(files):
     return shows([f[3] for f in files if PLAYABLE_RE.search(f[3]) and episode_of(f[3])])
 
 
+def in_show(query, name):
+    """Il file è della serie cercata? Il titolo combacia (una ricerca per parole porta anche altro)."""
+    wanted, key = show_key(query), show_key(short_title(name))
+    return wanted in key or key in wanted
+
+
 def seasons(query, releases):
-    """Episodi della serie cercata, divisi per stagione: solo quelli il cui titolo combacia (una ricerca per parole
-    porta anche altro)."""
-    wanted = show_key(query)
+    """Episodi della serie cercata, divisi per stagione: solo quelli il cui titolo combacia."""
     by_season = {}
     for r in releases:
         ep = episode_of(r.name)
-        key = show_key(short_title(r.name))
-        if r.playable and ep and (wanted in key or key in wanted):
+        if r.playable and ep and in_show(query, r.name):
             by_season.setdefault(ep[0], []).append((ep[1], item(r.site, r.parts[0].filename, r.size, r.date)))
     return [{"numero": season, "episodi": [it for _, it in sorted(eps, key=lambda e: (e[0], e[1]["titolo"]))]}
             for season, eps in sorted(by_season.items())]

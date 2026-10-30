@@ -10,14 +10,14 @@ window = {}  # proprietà della finestra principale (Window(10000))
 home = {"path": ""}  # cartella vera al posto di special://home/
 labels = {}  # InfoLabel di Kodi (System.FriendlyName, ...)
 conditions = set()  # condizioni vere (System.Platform.Android, ...)
-answers = {"input": "", "yesno": False, "canceled": []}  # canceled: iscanceled() a ogni giro (poi False)
+answers = {"input": "", "yesno": False, "select": -1, "canceled": []}  # canceled: iscanceled() a ogni giro (poi False)
 
 
 def reset():
     calls.clear()
     settings.clear()
     settings.update({"server": "https://server.test", "chiave": "", "dispositivo": "Kodi prova"})
-    answers.update({"input": "", "yesno": False, "canceled": []})
+    answers.update({"input": "", "yesno": False, "select": -1, "canceled": []})
     info.update({"version": "0.3.0"})
     window.clear()
     home["path"] = ""
@@ -29,8 +29,8 @@ class _Tag:
     def __init__(self):
         self.info = {}
 
-    def __getattr__(self, name):  # setTitle, setMediaType, setSeason, ...
-        return lambda value: self.info.__setitem__(name[3:].lower(), value)
+    def __getattr__(self, name):  # setTitle, setMediaType, setSeason, setResumePoint(secondi, durata), ...
+        return lambda *values: self.info.__setitem__(name[3:].lower(), values[0] if len(values) == 1 else values)
 
 
 class ListItem:
@@ -52,6 +52,9 @@ class ListItem:
     def setArt(self, art):
         self.props["art"] = art
 
+    def addContextMenuItems(self, items):
+        self.props.setdefault("menu", []).extend(items)
+
 
 class Dialog:
     def ok(self, heading, message):
@@ -68,6 +71,10 @@ class Dialog:
     def input(self, heading):
         calls.append(("input", heading))
         return answers["input"]
+
+    def select(self, heading, options):
+        calls.append(("select", heading, list(options)))
+        return answers["select"]
 
 
 class DialogProgress:

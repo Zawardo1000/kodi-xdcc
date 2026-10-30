@@ -38,6 +38,12 @@ stesso repository (Add-on video → **Zawardo XDCC Direct**).
 - Nel menu, **Connessione IRC** dice se si è collegati e nel canale (o l'ultimo problema: espulsi, rifiutati,
   connessione morta); selezionata, verifica davvero (server, canale, risposta del server). Una connessione morta
   in silenzio (per esempio se cambia l'IP di casa) viene riconosciuta e rifatta da sola.
+- **Z-videoteca**: tenendo premuto OK su un film o una serie (o un suo episodio) → «Aggiungi alla Z-videoteca».
+  Ogni Kodi ha la sua (un file nella cartella dati dell'addon). Le serie si aggiornano da sole (aprendole si cerca);
+  i film hanno lo stesso indirizzo delle novità, quindi punto di ripresa e "visto" sono gli stessi. In cima
+  **Continua a guardare**: i video della videoteca lasciati a metà, dai punti di ripresa di Kodi; togliendo un film
+  o una serie dalla videoteca spariscono anche da lì. Se il file di un film salvato non c'è più nei bot, al play si
+  sceglie un'altra versione dello stesso film, che da lì in poi prende il suo posto.
 
 ## Sviluppo
 
