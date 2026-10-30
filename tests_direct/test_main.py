@@ -382,3 +382,19 @@ def test_film_sparito_fuori_dalla_videoteca_solo_il_messaggio(addon, monkeypatch
     assert ("ok", "Non è più nelle liste.") in fake_kodi.calls
     assert not [r for r in api.requests if r[0] == "search"]
     assert plugin("setResolvedUrl")[0][1][1] is False
+
+
+def test_aggiungi_anche_dalla_ricerca(addon, monkeypatch):
+    api = FakeApi(search=[[{**FILM, **CARD}], [SHOW]])
+    monkeypatch.setattr(addon, "client", lambda: api)
+    fake_kodi.answers["input"] = "hellfire"
+    addon.router("?azione=cerca&tipo=film")
+    [(label, add)] = menu(listed()[0][1])
+    assert label == "Aggiungi alla Z-videoteca"
+    addon.router(add)
+    fake_kodi.answers["input"] = "last of us"
+    addon.router("?azione=cerca&tipo=serie")
+    [(label, add_show)] = menu(listed()[0][1])
+    assert label == "Aggiungi alla Z-videoteca"
+    addon.router(add_show)
+    assert [i["tipo"] for i in addon.videoteca().items] == ["film", "serie"]
