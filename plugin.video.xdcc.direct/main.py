@@ -427,10 +427,17 @@ def check_irc():
 
 def show_folder(show, here=False):
     """Cartella di una serie (anche nella Z-videoteca, dove il numero di episodi non si sa senza cercare)."""
-    count = f" ({show['episodi']})" if show.get("episodi") else ""
-    url, item, is_folder = folder(show["titolo"] + count, azione="serie", q=show["cerca"])
+    episodes = show.get("episodi")
+    url, item, is_folder = folder(show["titolo"] + (f" ({episodes})" if episodes else ""), azione="serie",
+                                  q=show["cerca"])
+    # Estuary segna "vista" una serie con episodi visti = episodi totali, anche se non si sanno (vuoti tutti e due):
+    # con il numero si vede "0 / N"; senza (nella videoteca) la cartella non si dichiara serie
+    if episodes:
+        for key, value in (("TotalEpisodes", episodes), ("WatchedEpisodes", 0), ("UnWatchedEpisodes", episodes)):
+            item.setProperty(key, str(value))
     set_info(item, {"title": show.get("titolo_scheda") or show["titolo"], "plot": show.get("trama"),
-                    "mediatype": "tvshow", "year": show.get("anno"), "rating": show.get("voto"), **card_info(show)})
+                    "mediatype": "tvshow" if episodes else "video", "year": show.get("anno"),
+                    "rating": show.get("voto"), **card_info(show)})
     set_art(item, show)
     library_menu(item, "serie", show, here=here)
     return url, item, is_folder
@@ -439,6 +446,9 @@ def show_folder(show, here=False):
 def season_folder(query, season, show):
     url, item, is_folder = folder(f"Stagione {season['numero']} ({len(season['episodi'])} episodi)",
                                   azione="stagione", q=query, n=season["numero"])
+    count = len(season["episodi"])  # (come per le serie: senza, Estuary la segna "vista")
+    for key, value in (("TotalEpisodes", count), ("WatchedEpisodes", 0), ("UnWatchedEpisodes", count)):
+        item.setProperty(key, str(value))
     set_info(item, {"title": f"Stagione {season['numero']}", "plot": show.get("trama"), "mediatype": "season",
                     "tvshowtitle": show.get("titolo_scheda"), "season": season["numero"], **card_info(show)})
     set_art(item, {}, show)

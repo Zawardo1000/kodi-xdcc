@@ -439,3 +439,16 @@ def test_trailer_e_cast_restano_nella_videoteca(addon, monkeypatch):
     info = listed()[0][1].tag.info
     assert info["trailer"].endswith("video_id=ItTrailer01") and info["cast"][0][0] == "Al"
 
+
+
+def test_serie_non_segnate_viste(addon, monkeypatch):
+    """Estuary segna "vista" una serie se episodi visti = totali: con il numero "0 / N", senza nessun segno."""
+    monkeypatch.setattr(addon, "client", lambda: FakeApi(latest_shows=[[SHOW]]))
+    addon.router("?azione=serie_novita")
+    item = listed()[0][1]
+    assert (item.props["TotalEpisodes"], item.props["WatchedEpisodes"]) == ("2", "0")
+    assert item.tag.info["mediatype"] == "tvshow"
+    addon.videoteca().add_show(SHOW)
+    addon.router("?azione=videoteca")
+    item = listed()[0][1]
+    assert "WatchedEpisodes" not in item.props and item.tag.info["mediatype"] == "video"
