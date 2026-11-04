@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <addons>
-<addon id="plugin.video.xdcc" name="Zawardo XDCC" version="0.4.2" provider-name="zawardo">
+<addon id="plugin.video.xdcc" name="Zawardo XDCC" version="0.4.3" provider-name="zawardo">
     <requires>
         <import addon="xbmc.python" version="3.0.1"/>
     </requires>
@@ -14,7 +14,8 @@
         <description lang="en_GB">Browse, search and play videos from a personal server, even while it is still preparing them. Requires a key issued by the server (Link to Telegram).</description>
         <platform>all</platform>
         <license>Uso privato</license>
-        <news>0.4.2: le schede a cui manca trama, locandina o trailer (film appena usciti) si richiedono il giorno dopo.
+        <news>0.4.3: schede con le stesse regole del Direct (anche quelle di titoli che TMDB non conosce ancora: un giorno).
+0.4.2: le schede a cui manca trama, locandina o trailer (film appena usciti) si richiedono il giorno dopo.
 0.4.1: schede tenute un mese; la chiave TMDB si prende al collegamento con Telegram.
 0.4.0: schede direttamente da TMDB, come il Direct; nella finestra Informazioni trailer (app YouTube o SmartTube su Android), cast, generi, regia e durata.
 0.3.4: in «Versioni» niente più versioni vecchie in cache.
@@ -28,7 +29,7 @@
         </assets>
     </extension>
 </addon>
-<addon id="plugin.video.xdcc.direct" name="Zawardo XDCC Direct" version="0.2.4" provider-name="zawardo">
+<addon id="plugin.video.xdcc.direct" name="Zawardo XDCC Direct" version="0.2.5" provider-name="zawardo">
     <requires>
         <import addon="xbmc.python" version="3.0.1"/>
     </requires>
@@ -43,7 +44,8 @@
         <description lang="en_GB">Latest additions, search and streaming of single video files from XDCC bots, straight from Kodi: nothing is saved, only a little video is kept in memory. Lists page, IRC server and channel go in the settings.</description>
         <platform>all</platform>
         <license>Uso privato</license>
-        <news>0.2.4: le serie non compaiono più come già viste nelle viste a mosaico (si vede quanti episodi ci sono).
+        <news>0.2.5: schede tenute anche su disco (non si richiedono a ogni avvio di Kodi): un mese, un giorno quelle incomplete (film appena usciti).
+0.2.4: le serie non compaiono più come già viste nelle viste a mosaico (si vede quanti episodi ci sono).
 0.2.3: nella finestra Informazioni trailer (in italiano se c'è, se no in lingua originale), cast, generi, regia e durata; il trailer si apre nell'app YouTube o SmartTube (impostazioni → Schede).
 0.2.2: aggiornamenti anche quando all'avvio di Kodi la rete non è ancora pronta; in «Versioni» niente più versioni vecchie in cache.
 0.2.1: Z-videoteca in fondo al menu, sopra la connessione IRC.

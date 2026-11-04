@@ -1,11 +1,14 @@
 """
 Schede di film, serie ed episodi da TMDB (locandina, sfondo, trama, anno, voto; per gli episodi titolo, trama e
-immagine). Copia di plugin.video.xdcc.direct/resources/lib/cards.py (si cambiano insieme): la chiave TMDB qui la dà
-il server a chi è collegato a Telegram; senza, niente schede: le liste funzionano uguale.
+immagine). Lo stesso file nei due addon (plugin.video.xdcc e plugin.video.xdcc.direct): si cambiano insieme. La
+chiave TMDB la dà il server al collegamento con Telegram (nel Direct «Compila da Telegram», o la scrive l'utente);
+senza, niente schede: le liste funzionano uguale.
 Per la finestra Informazioni di Kodi anche trailer (YouTube: in italiano, se no nella lingua originale, se no in
 inglese), cast, generi, regia e durata: una richiesta in più per titolo, che se non va lascia la scheda com'è.
 
-Le liste non aspettano più di WAIT secondi: le schede che arrivano dopo restano in memoria per la volta dopo.
+Le liste non aspettano più di WAIT secondi: le schede che arrivano dopo restano in memoria per la volta dopo, e su
+disco (resources/lib/disk.py). Una scheda vale un mese; un giorno se è incompleta (incomplete: TMDB di solito la
+completa nei giorni dopo l'uscita); 10 minuti se TMDB non ha risposto.
 La chiave viaggia nell'indirizzo: nei log solo il tipo di errore, mai l'indirizzo.
 """
 
@@ -20,8 +23,9 @@ import urllib.request
 logger = logging.getLogger("xdcc.direct")
 
 WAIT = 6
-_TTL = 24 * 3600
-_MISS_TTL = 600
+_TTL = 30 * 24 * 3600  # una scheda completa: locandine e trame non cambiano
+_INCOMPLETE_TTL = 24 * 3600
+_MISS_TTL = 600  # TMDB non ha risposto
 _PARALLEL = 8  # due richieste per titolo (ricerca e dettagli): le liste non devono aspettare di più
 _USER_AGENT = "plugin.video.xdcc.direct"
 _TMDB = "https://api.themoviedb.org/3"
@@ -38,6 +42,16 @@ def _get_json(url, headers=None, timeout=8):
                                                    **(headers or {})})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def incomplete(key, value):
+    """Manca qualcosa che TMDB di solito aggiunge nei giorni dopo l'uscita: il titolo stesso (non trovato), la trama,
+    la locandina o il trailer di un film o di una serie, gli episodi di una stagione o la trama di uno di loro."""
+    if not isinstance(value, dict):
+        return True
+    if key[0] == "season":
+        return not value or any(not (episode or {}).get("trama") for episode in value.values())
+    return not all(value.get(field) for field in ("trama", "locandina", "trailer"))
 
 
 def entry_of(item, title, serie):
@@ -108,7 +122,8 @@ class _Cards:
 
     async def _fetch(self, key, fetch):
         try:
-            value, ttl = await fetch(), _TTL
+            value = await fetch()
+            ttl = _INCOMPLETE_TTL if incomplete(key, value) else _TTL
         except (OSError, ValueError, KeyError, TypeError) as e:
             logger.warning(f"schede: {key[0]} {key[1]!r} non riuscito ({type(e).__name__})")
             value, ttl = None, _MISS_TTL

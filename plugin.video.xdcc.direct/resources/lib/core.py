@@ -17,7 +17,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from . import cards, lists
+from . import cards, disk, lists
 from .irc import IrcClient, IrcError
 from .stream import Requester, Stream
 from .web import ApiError, WebServer
@@ -76,9 +76,9 @@ def parse_config(settings):
 
 class Core:
     """settings() -> dizionario delle impostazioni (letto a ogni uso); save(id, valore) le scrive; notify(testo)
-    mostra un avviso in Kodi."""
+    mostra un avviso in Kodi; cards_path: il file delle schede di TMDB (disk.py), così restano da un avvio all'altro."""
 
-    def __init__(self, settings, save=None, notify=None, web_gap=_WEB_GAP):
+    def __init__(self, settings, save=None, notify=None, web_gap=_WEB_GAP, cards_path=None):
         self.settings, self.save = settings, save or (lambda key, value: None)
         self.notify = notify or (lambda text: None)
         self.token = secrets.token_urlsafe(24)
@@ -90,6 +90,7 @@ class Core:
         self._irc = self._irc_key = None
         self._requester = None
         self._cards = self._cards_key = None
+        self.cards_path = cards_path
         self.stream = None
         self._starting = {}  # streaming in preparazione (si cercano i mirror): sid -> (nome, task)
         self._failed = {}  # sid -> (messaggio, il file non c'è più), per stato() dopo un errore in preparazione
@@ -144,7 +145,15 @@ class Core:
         if config["chiave_tmdb"] != self._cards_key:
             self._cards = cards.TmdbCards(config["chiave_tmdb"])
             self._cards_key = config["chiave_tmdb"]
+            if self.cards_path:
+                disk.load(self._cards, self.cards_path)
         return self._cards
+
+    async def _save_cards(self, provider):
+        """Le schede su disco: al prossimo avvio di Kodi non si richiedono (prese qui, scritte in un thread)."""
+        if self.cards_path:
+            data = disk.rows(provider)
+            await asyncio.get_event_loop().run_in_executor(None, disk.write, self.cards_path, data)
 
     # --- siti delle liste ---
 
@@ -229,6 +238,7 @@ class Core:
                 name = title or (item["titolo"] if "cerca" in item else lists.short_title(item["nome"]))
                 entries.append(cards.entry_of(item, name, item.get("episodio") is not None if serie is None else serie))
             await provider.add_info(items, entries)
+            await self._save_cards(provider)
         return items
 
     # --- API per l'addon ---
@@ -289,6 +299,7 @@ class Core:
                     entries = [cards.entry_of(item, item["titolo"] if "cerca" in item else lists.short_title(item["nome"]),
                                               serie) for item in items]
                     await provider.add_info(items, entries, wait=60)
+                await self._save_cards(provider)
         except (ApiError, OSError) as e:
             logger.info(f"liste non preparate: {getattr(e, 'message', type(e).__name__)}")
 

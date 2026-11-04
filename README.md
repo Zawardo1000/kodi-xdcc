@@ -23,7 +23,7 @@ riceve la sua chiave da solo. Ogni Kodi ha la sua chiave, revocabile dal bot; il
 
 Locandine e trame arrivano direttamente da TMDB, come nel Direct, con la chiave TMDB che il server dà al
 collegamento con Telegram; restano un mese nella cartella dati dell'addon (un giorno quelle a cui manca trama,
-locandina o trailer, che TMDB aggiunge di solito nei giorni dopo l'uscita). Nella finestra Informazioni (tenendo premuto OK) anche
+locandina o trailer, o di titoli che TMDB non conosce ancora: di solito li aggiunge nei giorni dopo l'uscita). Nella finestra Informazioni (tenendo premuto OK) anche
 trailer, cast, generi, regia e durata: su Android il trailer si apre nell'app YouTube o SmartTube (impostazioni),
 altrove con l'addon YouTube di Kodi.
 
@@ -39,6 +39,7 @@ stesso repository (Add-on video → **Zawardo XDCC Direct**).
 - Nome utente IRC: un nome a caso alla prima apertura, modificabile. Se è già preso, lo stesso nome con 3 lettere in
   fondo.
 - Locandine e trame: direttamente da TMDB, con la chiave delle impostazioni (senza chiave, solo i nomi dei file).
+  Restano nella cartella dati dell'addon come nell'altro addon: un mese, un giorno quelle incomplete.
 - Finestra Informazioni (tenendo premuto OK): trailer (in italiano, se no in lingua originale), cast, generi,
   regia e durata. Su Android il trailer si apre nell'app YouTube o SmartTube (impostazioni → Schede), altrove
   con l'addon YouTube di Kodi.

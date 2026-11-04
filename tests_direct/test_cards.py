@@ -1,5 +1,6 @@
 """Schede da TMDB con la chiave delle impostazioni (risposte finte di TMDB, niente rete)."""
 import asyncio
+import time
 import urllib.parse
 
 from resources.lib import cards, core
@@ -89,3 +90,47 @@ def test_dettagli_che_non_rispondono_lasciano_la_scheda(monkeypatch):
     asyncio.run(cards.TmdbCards("k").add_info([film], [("f", "Hellfire")]))
     assert film["titolo_scheda"] == "Hellfire" and "trailer" not in film
 
+
+
+def test_scadenze_delle_schede():
+    """Un mese le complete; un giorno quelle che TMDB di solito completa dopo l'uscita; 10 minuti se non risponde."""
+    provider = cards.TmdbCards("k")
+    whole = {"trama": "Un incendio.", "locandina": "https://img/p.jpg", "trailer": "ItTrailer01"}
+    answers = {("movie", "intero"): whole, ("movie", "senza trailer"): dict(whole, trailer=None),
+               ("movie", "sconosciuto"): None, ("season", 3, 1): {1: {"trama": "Uno."}, 2: {"trama": ""}},
+               ("season", 3, 2): {}, ("season", 3, 3): {1: {"trama": "Uno."}}}
+
+    async def run():
+        for key, value in answers.items():
+            async def fetch(value=value):
+                return value
+            await provider._cached(key, fetch)
+
+        async def down():
+            raise OSError("TMDB giù")
+        await provider._cached(("movie", "giù"), down)
+
+    asyncio.run(run())
+    left = {key: expires - time.monotonic() for key, (_, expires) in provider._cache.items()}
+    day = 24 * 3600
+    assert left[("movie", "intero")] > 29 * day and left[("season", 3, 3)] > 29 * day
+    assert all(left[key] <= day for key in (("movie", "senza trailer"), ("movie", "sconosciuto"), ("season", 3, 1),
+                                            ("season", 3, 2)))
+    assert left[("movie", "giù")] <= 600
+
+
+def test_schede_su_disco_da_un_avvio_all_altro(tmp_path):
+    base = {"pagina": "https://liste.test/p.html", "server_irc": "irc.test", "canale": "#c", "nick": "giulia",
+            "chiave_tmdb": "k"}
+    path = str(tmp_path / "schede.json")
+    service = core.Core(lambda: base, cards_path=path)
+    provider = service._cards_for(core.parse_config(base))
+    provider._cache[("movie", "hellfire")] = ({"trama": "Un incendio."}, time.monotonic() + 3600)
+    provider._cache[("season", 3, 1)] = ({1: {"trama": "Uno."}}, time.monotonic() + 3600)
+
+    async def save():
+        await service._save_cards(provider)
+    asyncio.run(save())
+    again = core.Core(lambda: base, cards_path=path)._cards_for(core.parse_config(base))  # Kodi riavviato
+    assert again._cache[("movie", "hellfire")][0] == {"trama": "Un incendio."}
+    assert again._cache[("season", 3, 1)][0] == {1: {"trama": "Uno."}}  # numeri degli episodi

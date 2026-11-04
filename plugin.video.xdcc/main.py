@@ -15,8 +15,8 @@ Percorsi (plugin://plugin.video.xdcc/?azione=...):
 
 Le schede (locandina, sfondo, trama, anno, voto; nella finestra Informazioni anche trailer, cast, generi, regia e
 durata) le chiede direttamente a TMDB, come l'addon Direct e con lo stesso codice (resources/lib/cards.py), con la
-chiave TMDB che il server dà al collegamento con Telegram; restano su disco un mese (resources/lib/disk.py). Senza
-chiave, o se TMDB non risponde, solo il nome del file.
+chiave TMDB che il server dà al collegamento con Telegram; restano su disco (resources/lib/disk.py) un mese, un
+giorno se incomplete. Senza chiave, o se TMDB non risponde, solo il nome del file.
 All'apertura (menu principale) controlla se il repository ha una versione più nuova dell'addon (check_update) e
 toglie dalla cache di Kodi gli zip delle versioni vecchie (resources/lib/packages.py).
 """
@@ -47,8 +47,6 @@ REPOSITORY = "repository.zawardo"
 # indice del repository se il suo addon.xml non si legge (es. addon installato da zip senza repository)
 UPDATE_INDEX = "https://raw.githubusercontent.com/Zawardo1000/kodi-xdcc/main/repo/addons.xml"
 _UPDATE_EVERY = 600  # secondi: tornando al menu principale non si ricontrolla subito
-_CARDS_TTL = 30 * 24 * 3600  # secondi: quanto resta su disco una scheda di TMDB (locandine e trame non cambiano)
-cards._TTL = _CARDS_TTL  # cards.py è la copia di quello del Direct, che le tiene un giorno in memoria
 DEFAULT_SERVER = "https://xdcc.zawardo.duckdns.org"
 DEFAULT_DEVICE = "Kodi"
 _MIME = {"mkv": "video/x-matroska", "avi": "video/x-msvideo", "mp4": "video/mp4", "m4v": "video/mp4",
@@ -129,7 +127,7 @@ def tmdb_key():
 def with_cards(items, serie=None, title=None):
     """Schede di TMDB sugli elementi, come le aggiunge il servizio del Direct: col titolo dato (gli episodi di una
     serie), altrimenti quello della serie o ricavato dal nome del file. Le liste non aspettano più di cards.WAIT
-    secondi; le schede arrivate restano su disco _CARDS_TTL secondi per le volte dopo."""
+    secondi; le schede arrivate restano su disco per le volte dopo."""
     key = tmdb_key() if items else ""
     if not key:
         return items

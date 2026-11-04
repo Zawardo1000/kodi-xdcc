@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.xdcc" name="Zawardo XDCC" version="0.4.2" provider-name="zawardo">
+<addon id="plugin.video.xdcc" name="Zawardo XDCC" version="0.4.3" provider-name="zawardo">
     <requires>
         <import addon="xbmc.python" version="3.0.1"/>
     </requires>
@@ -13,7 +13,8 @@
         <description lang="en_GB">Browse, search and play videos from a personal server, even while it is still preparing them. Requires a key issued by the server (Link to Telegram).</description>
         <platform>all</platform>
         <license>Uso privato</license>
-        <news>0.4.2: le schede a cui manca trama, locandina o trailer (film appena usciti) si richiedono il giorno dopo.
+        <news>0.4.3: schede con le stesse regole del Direct (anche quelle di titoli che TMDB non conosce ancora: un giorno).
+0.4.2: le schede a cui manca trama, locandina o trailer (film appena usciti) si richiedono il giorno dopo.
 0.4.1: schede tenute un mese; la chiave TMDB si prende al collegamento con Telegram.
 0.4.0: schede direttamente da TMDB, come il Direct; nella finestra Informazioni trailer (app YouTube o SmartTube su Android), cast, generi, regia e durata.
 0.3.4: in «Versioni» niente più versioni vecchie in cache.

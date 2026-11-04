@@ -9,6 +9,7 @@ della rete); toglie dalla cache di Kodi gli zip delle versioni vecchie di questi
 """
 
 import logging
+import os
 import re
 import socket
 
@@ -102,7 +103,8 @@ def main():
     logger.setLevel(logging.INFO)
     logger.propagate = False
     ensure_nick()
-    runner = core.Runner(core.Core(read_settings, save_setting, notify))
+    cards_path = os.path.join(xbmcvfs.translatePath(xbmcaddon.Addon(ADDON_ID).getAddonInfo("profile")), "schede.json")
+    runner = core.Runner(core.Core(read_settings, save_setting, notify, cards_path=cards_path))
     try:
         port = runner.start()
     except OSError as e:
