@@ -15,8 +15,8 @@ Percorsi (plugin://plugin.video.xdcc/?azione=...):
 
 Le schede (locandina, sfondo, trama, anno, voto; nella finestra Informazioni anche trailer, cast, generi, regia e
 durata) le chiede direttamente a TMDB, come l'addon Direct e con lo stesso codice (resources/lib/cards.py), con la
-chiave TMDB che il server dà a chi è collegato; restano su disco un giorno (resources/lib/disk.py). Senza chiave, o
-se TMDB non risponde, solo il nome del file.
+chiave TMDB che il server dà al collegamento con Telegram; restano su disco un mese (resources/lib/disk.py). Senza
+chiave, o se TMDB non risponde, solo il nome del file.
 All'apertura (menu principale) controlla se il repository ha una versione più nuova dell'addon (check_update) e
 toglie dalla cache di Kodi gli zip delle versioni vecchie (resources/lib/packages.py).
 """
@@ -47,7 +47,8 @@ REPOSITORY = "repository.zawardo"
 # indice del repository se il suo addon.xml non si legge (es. addon installato da zip senza repository)
 UPDATE_INDEX = "https://raw.githubusercontent.com/Zawardo1000/kodi-xdcc/main/repo/addons.xml"
 _UPDATE_EVERY = 600  # secondi: tornando al menu principale non si ricontrolla subito
-_TMDB_EVERY = 24 * 3600  # secondi: ogni quanto si rilegge dal server la chiave TMDB
+_CARDS_TTL = 30 * 24 * 3600  # secondi: quanto resta su disco una scheda di TMDB (locandine e trame non cambiano)
+cards._TTL = _CARDS_TTL  # cards.py è la copia di quello del Direct, che le tiene un giorno in memoria
 DEFAULT_SERVER = "https://xdcc.zawardo.duckdns.org"
 DEFAULT_DEVICE = "Kodi"
 _MIME = {"mkv": "video/x-matroska", "avi": "video/x-msvideo", "mp4": "video/mp4", "m4v": "video/mp4",
@@ -107,28 +108,28 @@ def size_text(size):
     return f"{size / 1024 ** 3:.1f} GB".replace(".", ",") if size >= 1024 ** 3 else f"{size / 1024 ** 2:.0f} MB"
 
 
-def tmdb_key():
-    """Chiave TMDB per le schede: quella che il server dà a chi è collegato a Telegram, riletta una volta al giorno
-    (se il server non risponde, l'ultima). Mai nei log."""
-    if not ADDON.getSetting("chiave"):
-        return ""
+def fetch_tmdb_key():
+    """La chiave TMDB per le schede, che il server dà a chi è collegato a Telegram: si prende al collegamento (pair)
+    e poi resta. Mai nei log."""
     try:
-        fresh = time.time() - float(ADDON.getSetting("tmdb_letta_il") or 0) < _TMDB_EVERY
-    except ValueError:
-        fresh = False
-    if not fresh:
-        try:
-            ADDON.setSetting("chiave_tmdb", client().direct_config().get("tmdb") or "")
-            ADDON.setSetting("tmdb_letta_il", str(int(time.time())))
-        except ApiError as e:
-            xbmc.log(f"[{TITLE}] chiave TMDB non letta dal server: {e.message}", xbmc.LOGINFO)
+        ADDON.setSetting("chiave_tmdb", client().direct_config().get("tmdb") or "")
+        ADDON.setSetting("tmdb_letta_il", str(int(time.time())))
+    except ApiError as e:  # riprova alla prima lista
+        xbmc.log(f"[{TITLE}] chiave TMDB non letta dal server: {e.message}", xbmc.LOGINFO)
+
+
+def tmdb_key():
+    """Chiave TMDB delle impostazioni; un Kodi collegato prima che l'addon la prendesse al collegamento (o quando il
+    server non rispondeva) la chiede una volta sola."""
+    if ADDON.getSetting("chiave") and not ADDON.getSetting("tmdb_letta_il"):
+        fetch_tmdb_key()
     return ADDON.getSetting("chiave_tmdb")
 
 
 def with_cards(items, serie=None, title=None):
     """Schede di TMDB sugli elementi, come le aggiunge il servizio del Direct: col titolo dato (gli episodi di una
     serie), altrimenti quello della serie o ricavato dal nome del file. Le liste non aspettano più di cards.WAIT
-    secondi; le schede arrivate restano su disco per le volte dopo."""
+    secondi; le schede arrivate restano su disco _CARDS_TTL secondi per le volte dopo."""
     key = tmdb_key() if items else ""
     if not key:
         return items
@@ -457,6 +458,7 @@ def pair():
                 ADDON.setSetting("chiave", status["chiave"])
                 if status.get("utente"):  # a quale persona su Telegram è collegato questo Kodi
                     ADDON.setSetting("utente_telegram", str(status["utente"]))
+                fetch_tmdb_key()  # con la chiave appena arrivata
                 xbmcgui.Dialog().notification(TITLE, "Collegato a Telegram")
                 xbmc.executebuiltin("Container.Refresh")
                 return True

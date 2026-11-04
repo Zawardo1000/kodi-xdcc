@@ -1,7 +1,7 @@
 """
 Le schede di TMDB (resources/lib/cards.py) su disco, nella cartella dati dell'addon: l'addon riparte a ogni lista, e
-senza le schede di prima ogni apertura rifarebbe tutte le richieste. Ognuna vale quanto in memoria (un giorno; 10
-minuti se TMDB non aveva risposto). Un file illeggibile vale come vuoto.
+senza le schede di prima ogni apertura rifarebbe tutte le richieste. Ognuna vale quanto in memoria (main.py: un
+mese; 10 minuti se TMDB non aveva risposto). Un file illeggibile vale come vuoto.
 """
 
 import json

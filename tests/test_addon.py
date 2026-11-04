@@ -102,10 +102,12 @@ def test_serie_con_piu_stagioni_e_con_una(addon, monkeypatch):
 
 def test_collega(addon, monkeypatch):
     api = FakeApi(pair_start={"codice": "K7P2QX", "token": "t", "scade_tra": 600},
-                  pair_status=[{"stato": "attesa", "chiave": None}, {"stato": "ok", "chiave": "segreta"}])
+                  pair_status=[{"stato": "attesa", "chiave": None}, {"stato": "ok", "chiave": "segreta"}],
+                  direct_config={"tmdb": "chiave-tmdb"})
     monkeypatch.setattr(addon, "client", lambda with_key=True: api)
     assert addon.pair() is True
     assert fake_kodi.settings["chiave"] == "segreta"
+    assert fake_kodi.settings["chiave_tmdb"] == "chiave-tmdb"  # al collegamento, poi resta
     code = fake_kodi.settings["codice"]
     assert len(code) == 4 and ("pair_start", f"Kodi prova · {code}") in api.requests  # codice fisso, salvato
     assert any("/xdcc kodi K7P2QX" in c[1] for c in fake_kodi.calls if c[0] == "progress")
@@ -331,3 +333,18 @@ def test_schede_su_disco(tmp_path):
     assert again._cache[("season", 3, 1)][0] == {1: {"titolo_episodio": "Pilota"}}  # numeri degli episodi
     (tmp_path / "dati" / "schede.json").write_text("rotto")
     disk.load(again, path)  # illeggibile: come vuoto
+
+
+def test_chiave_tmdb_presa_una_volta_e_schede_per_un_mese(addon, monkeypatch):
+    import json
+    import os
+    from resources.lib import cards
+    fake_kodi.settings.update({"chiave": "k", "chiave_tmdb": "chiave-tmdb", "tmdb_letta_il": "1"})  # mesi fa
+    monkeypatch.setattr(cards, "_get_json", _Tmdb(TMDB))
+    api = FakeApi(latest_films=[[dict(FILM)]])  # niente direct_config: non si richiede
+    monkeypatch.setattr(addon, "client", lambda with_key=True: api)
+    addon.router("?azione=film_novita")
+    assert [r[0] for r in api.requests] == ["latest_films"]
+    with open(os.path.join(fake_kodi.info["profile"], "schede.json"), encoding="utf-8") as f:
+        expires = json.load(f)[0][2]
+    assert expires - time.time() > 29 * 24 * 3600
