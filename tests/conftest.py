@@ -15,9 +15,10 @@ fake_kodi.install()
 
 
 @pytest.fixture
-def addon(monkeypatch):
-    """main.py importato come lo avvia Kodi (handle 5), con il finto Kodi azzerato."""
+def addon(monkeypatch, tmp_path):
+    """main.py importato come lo avvia Kodi (handle 5), con il finto Kodi azzerato (cartella dati in tmp_path)."""
     fake_kodi.reset()
+    fake_kodi.info["profile"] = str(tmp_path / "addon_data")
     monkeypatch.setattr(sys, "argv", ["plugin://plugin.video.xdcc/", "5", ""])
 
     def no_network(*args, **kwargs):  # il controllo degli aggiornamenti non va su GitHub (i test che lo provano

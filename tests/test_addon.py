@@ -1,4 +1,6 @@
 """L'addon col finto Kodi e un finto server: menu, liste, attesa, riproduzione, collegamento."""
+import time
+
 import fake_kodi
 from resources.lib.api import ApiError
 
@@ -229,3 +231,103 @@ def test_zip_vecchi_tolti_all_apertura(addon, monkeypatch, tmp_path):
     monkeypatch.setattr(addon.urllib.request, "urlopen", lambda request, timeout: _Index("0.0.1"))
     addon.router("")
     assert os.listdir(packages) == ["plugin.video.altro-2.0.zip"]
+
+
+# --- schede direttamente da TMDB, finestra Informazioni: trailer e cast ---
+
+class _Tmdb:
+    """TMDB finto al posto di cards._get_json: risposte per percorso, percorsi chiesti registrati."""
+
+    def __init__(self, answers):
+        self.answers, self.paths = answers, []
+
+    def __call__(self, url, headers=None, timeout=8):
+        import urllib.parse
+        path = urllib.parse.urlsplit(url).path[len("/3"):]
+        self.paths.append(path)
+        return self.answers.get(path, {"results": []})
+
+
+TMDB = {
+    "/search/movie": {"results": [{"id": 5, "title": "Hellfire", "overview": "Un incendio.", "poster_path": "/p.jpg",
+                                   "release_date": "2026-03-01", "vote_average": 6.84, "original_language": "en"}]},
+    "/movie/5": {"runtime": 104, "genres": [{"name": "Azione"}],
+                 "videos": {"results": [{"site": "YouTube", "key": "ItTrailer01", "type": "Trailer", "iso_639_1": "it"}]},
+                 "credits": {"cast": [{"name": "Al", "character": "Max", "order": 0, "profile_path": "/al.jpg"}],
+                             "crew": [{"name": "Regista", "job": "Director"}]}},
+    "/search/tv": {"results": [{"id": 3, "name": "Sheriff Country", "overview": "La serie.", "poster_path": "/s.jpg"}]},
+    "/tv/3/season/1": {"episodes": [{"episode_number": 1, "name": "Pilota", "overview": "Il primo.",
+                                     "still_path": "/e1.jpg"}]},
+}
+
+
+def test_schede_direttamente_da_tmdb(addon, monkeypatch):
+    from resources.lib import cards
+    fake_kodi.settings["chiave"] = "k"
+    fake_kodi.conditions.add("System.Platform.Android")
+    tmdb = _Tmdb(TMDB)
+    monkeypatch.setattr(cards, "_get_json", tmdb)
+    api = FakeApi(latest_films=[[dict(FILM)], [dict(FILM)]], direct_config={"tmdb": "chiave-tmdb"})
+    monkeypatch.setattr(addon, "client", lambda with_key=True: api)
+    addon.router("?azione=film_novita")
+    info = plugin("addDirectoryItems")[0][1][1][0][1].tag.info
+    assert info["title"] == "Hellfire" and info["year"] == 2026 and info["plot"].startswith("Un incendio.")
+    assert info["trailer"] == "plugin://plugin.video.xdcc/?azione=trailer&v=ItTrailer01"  # nell'app (Android)
+    assert info["cast"] == [("Al", "Max", 0, "https://image.tmdb.org/t/p/w185/al.jpg")]
+    assert info["genres"] == ["Azione"] and info["directors"] == ["Regista"] and info["duration"] == 104 * 60
+    assert tmdb.paths == ["/search/movie", "/movie/5"] and fake_kodi.settings["chiave_tmdb"] == "chiave-tmdb"
+    addon.router("?azione=film_novita")  # l'addon riparte: le schede dal disco, la chiave dalle impostazioni
+    assert plugin("addDirectoryItems")[1][1][1][0][1].tag.info["trailer"].endswith("v=ItTrailer01")
+    assert len(tmdb.paths) == 2 and [r[0] for r in api.requests].count("direct_config") == 1
+
+
+def test_schede_della_serie_e_degli_episodi(addon, monkeypatch):
+    from resources.lib import cards
+    fake_kodi.settings.update({"chiave": "k", "chiave_tmdb": "chiave-tmdb", "tmdb_letta_il": str(int(time.time()))})
+    monkeypatch.setattr(cards, "_get_json", _Tmdb(TMDB))
+    episode = dict(FILM, nome="Sheriff.Country.S01E01.mkv", stagione=1, episodio=1)
+    second = dict(episode, stagione=2)
+    api = FakeApi(show_page=[{"stagioni": [{"numero": 1, "episodi": [episode]}, {"numero": 2, "episodi": [second]}],
+                              "serie": {"titolo": "Sheriff Country", "cerca": "Sheriff Country"}}])
+    monkeypatch.setattr(addon, "client", lambda with_key=True: api)
+    addon.router("?azione=serie&q=Sheriff+Country")
+    seasons = plugin("addDirectoryItems")[0][1][1]
+    assert seasons[0][1].tag.info["plot"] == "La serie." and seasons[0][1].props["art"]["poster"].endswith("/s.jpg")
+    assert episode["titolo_episodio"] == "Pilota" and episode["miniatura"].endswith("/e1.jpg")
+
+
+def test_senza_telegram_niente_tmdb(addon, monkeypatch):
+    from resources.lib import cards
+    tmdb = _Tmdb(TMDB)
+    monkeypatch.setattr(cards, "_get_json", tmdb)
+    monkeypatch.setattr(addon, "client", lambda with_key=True: FakeApi(latest_films=[[dict(FILM)]]))
+    addon.router("?azione=film_novita")  # niente chiave: né la chiave TMDB dal server né le schede
+    assert not tmdb.paths and plugin("addDirectoryItems")[0][1][1][0][1].tag.info["title"] == FILM["titolo"]
+
+
+def test_trailer_nell_app_scelta(addon, monkeypatch):
+    fake_kodi.settings["trailer"] = "1"
+    addon.router("?azione=trailer&v=ItTrailer01")
+    addon.router("?azione=trailer&v=x);Quit(")  # non è una chiave di YouTube: nessun comando
+    assert [c for c in fake_kodi.calls if c[0] == "builtin"] == [
+        ("builtin", "StartAndroidActivity(org.smarttube.stable,android.intent.action.VIEW,,"
+                    "https://www.youtube.com/watch?v=ItTrailer01)")]
+    assert all(c[1][1] is False for c in plugin("setResolvedUrl"))  # a Kodi niente da riprodurre: lo fa l'app
+    monkeypatch.setattr(addon, "_trailer_app", None)  # non Android: l'addon YouTube di Kodi
+    assert addon.trailer_url("ItTrailer01") == "plugin://plugin.video.youtube/play/?video_id=ItTrailer01"
+
+
+def test_schede_su_disco(tmp_path):
+    from resources.lib import cards, disk
+    provider = cards.TmdbCards("k")
+    provider._cache = {("movie", "hellfire"): ({"trama": "Un incendio."}, time.monotonic() + 3600),
+                       ("season", 3, 1): ({1: {"titolo_episodio": "Pilota"}}, time.monotonic() + 3600),
+                       ("movie", "scaduto"): ({"trama": "vecchia"}, time.monotonic() - 1)}
+    path = str(tmp_path / "dati" / "schede.json")
+    disk.save(provider, path)
+    again = cards.TmdbCards("k")
+    disk.load(again, path)
+    assert set(again._cache) == {("movie", "hellfire"), ("season", 3, 1)}
+    assert again._cache[("season", 3, 1)][0] == {1: {"titolo_episodio": "Pilota"}}  # numeri degli episodi
+    (tmp_path / "dati" / "schede.json").write_text("rotto")
+    disk.load(again, path)  # illeggibile: come vuoto

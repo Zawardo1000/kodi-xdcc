@@ -21,6 +21,11 @@ Una volta sola, il repository (poi Kodi aggiorna da solo l'addon):
 Nell'addon: **Collega a Telegram**. Compare un codice da mandare al bot del server con `/xdcc kodi CODICE`: l'addon
 riceve la sua chiave da solo. Ogni Kodi ha la sua chiave, revocabile dal bot; il server ne conserva solo l'impronta.
 
+Locandine e trame arrivano direttamente da TMDB, come nel Direct, con la chiave TMDB che il server dà a chi è
+collegato; restano un giorno nella cartella dati dell'addon. Nella finestra Informazioni (tenendo premuto OK) anche
+trailer, cast, generi, regia e durata: su Android il trailer si apre nell'app YouTube o SmartTube (impostazioni),
+altrove con l'addon YouTube di Kodi.
+
 ## Zawardo XDCC Direct (senza server)
 
 `plugin.video.xdcc.direct` fa tutto da Kodi: legge le liste, si collega a IRC e guarda i file video singoli in

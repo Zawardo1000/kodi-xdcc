@@ -10,13 +10,19 @@ Percorsi (plugin://plugin.video.xdcc/?azione=...):
 - cerca&tipo=film|serie        tastiera, poi risultati
 - server                       file già sul server
 - guarda&id=...                fa partire (o si aggancia a) il download e apre il video appena può
+- trailer&v=...                il trailer (YouTube) nell'app scelta nelle impostazioni (Android)
 - collega                      abbinamento con Telegram (anche dal pulsante nelle impostazioni)
 
-Locandina, sfondo, trama, anno e voto arrivano dal server (schede TMDB) quando le ha: senza, solo il nome del file.
+Le schede (locandina, sfondo, trama, anno, voto; nella finestra Informazioni anche trailer, cast, generi, regia e
+durata) le chiede direttamente a TMDB, come l'addon Direct e con lo stesso codice (resources/lib/cards.py), con la
+chiave TMDB che il server dà a chi è collegato; restano su disco un giorno (resources/lib/disk.py). Senza chiave, o
+se TMDB non risponde, solo il nome del file.
 All'apertura (menu principale) controlla se il repository ha una versione più nuova dell'addon (check_update) e
 toglie dalla cache di Kodi gli zip delle versioni vecchie (resources/lib/packages.py).
 """
 
+import asyncio
+import os
 import random
 import re
 import sys
@@ -30,7 +36,7 @@ import xbmcgui
 import xbmcplugin
 import xbmcvfs
 
-from resources.lib import packages
+from resources.lib import cards, disk, packages, titles
 from resources.lib.api import USER_AGENT, ApiError, XdccApi
 
 ADDON = xbmcaddon.Addon()
@@ -41,6 +47,7 @@ REPOSITORY = "repository.zawardo"
 # indice del repository se il suo addon.xml non si legge (es. addon installato da zip senza repository)
 UPDATE_INDEX = "https://raw.githubusercontent.com/Zawardo1000/kodi-xdcc/main/repo/addons.xml"
 _UPDATE_EVERY = 600  # secondi: tornando al menu principale non si ricontrolla subito
+_TMDB_EVERY = 24 * 3600  # secondi: ogni quanto si rilegge dal server la chiave TMDB
 DEFAULT_SERVER = "https://xdcc.zawardo.duckdns.org"
 DEFAULT_DEVICE = "Kodi"
 _MIME = {"mkv": "video/x-matroska", "avi": "video/x-msvideo", "mp4": "video/mp4", "m4v": "video/mp4",
@@ -100,13 +107,64 @@ def size_text(size):
     return f"{size / 1024 ** 3:.1f} GB".replace(".", ",") if size >= 1024 ** 3 else f"{size / 1024 ** 2:.0f} MB"
 
 
+def tmdb_key():
+    """Chiave TMDB per le schede: quella che il server dà a chi è collegato a Telegram, riletta una volta al giorno
+    (se il server non risponde, l'ultima). Mai nei log."""
+    if not ADDON.getSetting("chiave"):
+        return ""
+    try:
+        fresh = time.time() - float(ADDON.getSetting("tmdb_letta_il") or 0) < _TMDB_EVERY
+    except ValueError:
+        fresh = False
+    if not fresh:
+        try:
+            ADDON.setSetting("chiave_tmdb", client().direct_config().get("tmdb") or "")
+            ADDON.setSetting("tmdb_letta_il", str(int(time.time())))
+        except ApiError as e:
+            xbmc.log(f"[{TITLE}] chiave TMDB non letta dal server: {e.message}", xbmc.LOGINFO)
+    return ADDON.getSetting("chiave_tmdb")
+
+
+def with_cards(items, serie=None, title=None):
+    """Schede di TMDB sugli elementi, come le aggiunge il servizio del Direct: col titolo dato (gli episodi di una
+    serie), altrimenti quello della serie o ricavato dal nome del file. Le liste non aspettano più di cards.WAIT
+    secondi; le schede arrivate restano su disco per le volte dopo."""
+    key = tmdb_key() if items else ""
+    if not key:
+        return items
+    provider = cards.TmdbCards(key)
+    path = os.path.join(xbmcvfs.translatePath(ADDON.getAddonInfo("profile")), "schede.json")
+    disk.load(provider, path)
+    entries = []
+    for item in items:
+        name = title or (item["titolo"] if "cerca" in item else titles.short_title(item["nome"].rsplit("/", 1)[-1]))
+        entries.append(cards.entry_of(item, name, item.get("episodio") is not None if serie is None else serie))
+    asyncio.run(provider.add_info(items, entries))
+    disk.save(provider, path)
+    return items
+
+
 def set_info(item, info):
-    """Titolo, tipo, trama, anno, voto, serie, stagione ed episodio: InfoTagVideo da Kodi 20, setInfo per Kodi 19."""
+    """Titolo, tipo, trama, anno, voto, serie, stagione ed episodio; per la finestra Informazioni anche trailer,
+    generi, regia, durata (secondi) e cast ([nome, ruolo, foto]). InfoTagVideo da Kodi 20, setInfo per Kodi 19."""
+    cast = info.get("cast") or []
     try:
         tag = item.getVideoInfoTag()
     except AttributeError:
-        item.setInfo("video", {k: v for k, v in info.items() if v is not None})
+        item.setInfo("video", {k: v for k, v in info.items() if v is not None and k != "cast"})
+        if cast:
+            item.setCast([{"name": n, "role": r, "thumbnail": t, "order": i} for i, (n, r, t) in enumerate(cast)])
         return
+    if info.get("trailer"):
+        tag.setTrailer(info["trailer"])
+    if info.get("genre"):
+        tag.setGenres(info["genre"])
+    if info.get("director"):
+        tag.setDirectors(info["director"])
+    if info.get("duration"):
+        tag.setDuration(info["duration"])
+    if cast:
+        tag.setCast([xbmc.Actor(n, r, i, t) for i, (n, r, t) in enumerate(cast)])
     tag.setTitle(info["title"])
     tag.setMediaType(info["mediatype"])
     tag.setPlot(info.get("plot") or "")
@@ -120,6 +178,40 @@ def set_info(item, info):
         tag.setSeason(info["season"])
     if info.get("episode") is not None:
         tag.setEpisode(info["episode"])
+
+
+_TRAILER_APPS = {"0": "com.google.android.youtube.tv", "1": "org.smarttube.stable"}  # impostazione "trailer"
+_trailer_app = None
+
+
+def trailer_url(key):
+    """Cosa apre il pulsante Trailer della finestra Informazioni: su Android l'app scelta nelle impostazioni (YouTube
+    o SmartTube, passando da azione=trailer); altrove, o se scelto, l'addon YouTube di Kodi."""
+    global _trailer_app
+    if _trailer_app is None:
+        _trailer_app = (_TRAILER_APPS.get(ADDON.getSetting("trailer") or "0", "")
+                        if xbmc.getCondVisibility("System.Platform.Android") else "")
+    if _trailer_app:
+        return plugin_url(azione="trailer", v=key)
+    return "plugin://plugin.video.youtube/play/?" + urlencode({"video_id": key})
+
+
+def card_info(card):
+    """Per la finestra Informazioni: trailer, generi, regia, durata e cast della scheda."""
+    return {"trailer": trailer_url(card["trailer"]) if card.get("trailer") else None,
+            "genre": card.get("generi") or None, "director": card.get("regia") or None,
+            "duration": card["durata"] * 60 if card.get("durata") else None, "cast": card.get("cast") or None}
+
+
+def play_trailer(key):
+    """Il trailer nell'app scelta: Kodi resta sotto, e tornando indietro si è di nuovo qui. A Kodi si dice che non
+    c'è niente da riprodurre (lo fa l'app)."""
+    package = _TRAILER_APPS.get(ADDON.getSetting("trailer") or "0", _TRAILER_APPS["0"])
+    if re.fullmatch(r"[A-Za-z0-9_-]{6,20}", key):  # finisce in un comando di Kodi: solo una chiave di YouTube
+        xbmc.log(f"[{TITLE}] trailer {key} con {package}", xbmc.LOGINFO)
+        xbmc.executebuiltin(f"StartAndroidActivity({package},android.intent.action.VIEW,,"
+                            f"https://www.youtube.com/watch?v={key})")
+    xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
 
 
 def set_art(item, card, show=None):
@@ -148,7 +240,7 @@ def playable(entry):
                     "plot": f"{entry['trama']}\n\n{details}" if entry.get("trama") else details,
                     "mediatype": "episode" if episode else "movie", "year": entry.get("anno"),
                     "rating": entry.get("voto"), "tvshowtitle": entry.get("titolo_scheda") if episode else None,
-                    "season": entry.get("stagione"), "episode": entry.get("episodio")})
+                    "season": entry.get("stagione"), "episode": entry.get("episodio"), **card_info(entry)})
     set_art(item, entry)
     return plugin_url(azione="guarda", id=entry["id"]), item, False
 
@@ -243,7 +335,7 @@ def prune_packages():
 def show_folder(show):
     url, item, is_folder = folder(f"{show['titolo']} ({show['episodi']})", azione="serie", q=show["cerca"])
     set_info(item, {"title": show.get("titolo_scheda") or show["titolo"], "plot": show.get("trama"),
-                    "mediatype": "tvshow", "year": show.get("anno"), "rating": show.get("voto")})
+                    "mediatype": "tvshow", "year": show.get("anno"), "rating": show.get("voto"), **card_info(show)})
     set_art(item, show)
     return url, item, is_folder
 
@@ -252,17 +344,24 @@ def season_folder(query, season, show):
     url, item, is_folder = folder(f"Stagione {season['numero']} ({len(season['episodi'])} episodi)",
                                   azione="stagione", q=query, n=season["numero"])
     set_info(item, {"title": f"Stagione {season['numero']}", "plot": show.get("trama"), "mediatype": "season",
-                    "tvshowtitle": show.get("titolo_scheda"), "season": season["numero"]})
+                    "tvshowtitle": show.get("titolo_scheda"), "season": season["numero"], **card_info(show)})
     set_art(item, {}, show)
     return url, item, is_folder
 
 
 def show_list(shows):
-    end([show_folder(s) for s in shows], "tvshows")
+    end([show_folder(s) for s in with_cards(shows, serie=True)], "tvshows")
+
+
+def show_page(query):
+    """Stagioni della serie, con le schede: della serie (per le cartelle delle stagioni) e di ogni episodio."""
+    page = client().show_page(query)
+    with_cards([page["serie"]] + [ep for s in page["stagioni"] for ep in s["episodi"]], serie=True, title=query)
+    return page
 
 
 def show_seasons(query):
-    page = client().show_page(query)
+    page = show_page(query)
     seasons = page["stagioni"]
     if not seasons:
         xbmcgui.Dialog().notification(TITLE, "Nessun episodio guardabile (solo file singoli)")
@@ -274,7 +373,7 @@ def show_seasons(query):
 
 
 def show_season(query, number):
-    season = next((s for s in client().show_page(query)["stagioni"] if str(s["numero"]) == str(number)), None)
+    season = next((s for s in show_page(query)["stagioni"] if str(s["numero"]) == str(number)), None)
     end([playable(e) for e in season["episodi"]] if season else [], "episodes")
 
 
@@ -287,7 +386,7 @@ def search(kind):
     if kind == "serie":
         show_list(results)
     else:
-        end([playable(e) for e in results], "movies")
+        end([playable(e) for e in with_cards(results, serie=False)], "movies")
 
 
 def wait_until_ready(api, job, item_id):
@@ -384,6 +483,9 @@ def router(paramstring):
     if action == "guarda":
         watch(params["id"])
         return
+    if action == "trailer":
+        play_trailer(params.get("v", ""))
+        return
     if action == "collega":
         pair()
         if HANDLE >= 0:  # dal menu (cartella); dalle impostazioni arriva senza handle
@@ -391,7 +493,7 @@ def router(paramstring):
         return
     try:
         if action == "film_novita":
-            end([playable(e) for e in client().latest_films()], "movies")
+            end([playable(e) for e in with_cards(client().latest_films(), serie=False)], "movies")
         elif action == "serie_novita":
             show_list(client().latest_shows())
         elif action == "serie":
@@ -401,7 +503,7 @@ def router(paramstring):
         elif action == "cerca":
             search(params.get("tipo", "film"))
         elif action == "server":
-            end([playable(e) for e in client().on_server()], "movies")
+            end([playable(e) for e in with_cards(client().on_server())], "movies")
         else:
             main_menu()
     except ApiError as e:

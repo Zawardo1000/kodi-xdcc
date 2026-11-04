@@ -50,6 +50,10 @@ class XdccApi:
     def pair_status(self, code, token):
         return self.get("/abbina/stato", codice=code, token=token)
 
+    def direct_config(self):
+        """I valori che il server dà all'addon Direct a chi è collegato: qui serve solo la chiave TMDB ("tmdb")."""
+        return self.get("/direct")
+
     # --- liste ---
 
     def latest_films(self):
