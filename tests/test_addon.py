@@ -1,5 +1,7 @@
 """L'addon col finto Kodi e un finto server: menu, liste, attesa, riproduzione, collegamento."""
+import json
 import time
+from pathlib import Path
 
 import fake_kodi
 from resources.lib.api import ApiError
@@ -335,8 +337,28 @@ def test_schede_su_disco(tmp_path):
     disk.load(again, path)  # illeggibile: come vuoto
 
 
+def test_schede_incomplete_si_richiedono_il_giorno_dopo(tmp_path):
+    from resources.lib import cards, disk
+    month = time.monotonic() + 30 * 24 * 3600
+    whole = {"trama": "Un incendio.", "locandina": "https://img/p.jpg", "trailer": "ItTrailer01"}
+    provider = cards.TmdbCards("k")
+    provider._cache = {("movie", "intero"): (whole, month),
+                       ("movie", "senza trailer"): (dict(whole, trailer=None), month),  # appena uscito
+                       ("season", 3, 1): ({1: {"trama": "Il primo."}, 2: {"trama": ""}}, month),
+                       ("season", 3, 2): ({1: {"trama": "Il primo."}}, month)}
+    path = str(tmp_path / "schede.json")
+    disk.save(provider, path)
+    left = {tuple(key): expires - time.time() for key, _, expires in json.loads(Path(path).read_text())}
+    assert left[("movie", "intero")] > 29 * 24 * 3600 and left[("season", 3, 2)] > 29 * 24 * 3600
+    assert left[("movie", "senza trailer")] <= 24 * 3600 and left[("season", 3, 1)] <= 24 * 3600
+    again = cards.TmdbCards("k")
+    disk.load(again, path)
+    disk.save(again, path)  # riscritta il giorno stesso: la scadenza non si allunga
+    left_again = {tuple(key): expires - time.time() for key, _, expires in json.loads(Path(path).read_text())}
+    assert left_again[("movie", "senza trailer")] <= left[("movie", "senza trailer")] + 1
+
+
 def test_chiave_tmdb_presa_una_volta_e_schede_per_un_mese(addon, monkeypatch):
-    import json
     import os
     from resources.lib import cards
     fake_kodi.settings.update({"chiave": "k", "chiave_tmdb": "chiave-tmdb", "tmdb_letta_il": "1"})  # mesi fa

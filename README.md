@@ -22,7 +22,8 @@ Nell'addon: **Collega a Telegram**. Compare un codice da mandare al bot del serv
 riceve la sua chiave da solo. Ogni Kodi ha la sua chiave, revocabile dal bot; il server ne conserva solo l'impronta.
 
 Locandine e trame arrivano direttamente da TMDB, come nel Direct, con la chiave TMDB che il server dà al
-collegamento con Telegram; restano un mese nella cartella dati dell'addon. Nella finestra Informazioni (tenendo premuto OK) anche
+collegamento con Telegram; restano un mese nella cartella dati dell'addon (un giorno quelle a cui manca trama,
+locandina o trailer, che TMDB aggiunge di solito nei giorni dopo l'uscita). Nella finestra Informazioni (tenendo premuto OK) anche
 trailer, cast, generi, regia e durata: su Android il trailer si apre nell'app YouTube o SmartTube (impostazioni),
 altrove con l'addon YouTube di Kodi.
 
