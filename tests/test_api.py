@@ -15,6 +15,8 @@ class _Handler(BaseHTTPRequestHandler):
         seen.append((self.path, self.headers.get("X-Api-Key")))
         if self.path.startswith("/xdcc/api/novita"):
             body, code = {"film": [{"id": "RLD:a.mkv"}]}, 200
+        elif self.path.startswith("/xdcc/api/cancella"):
+            body, code = {"cancellato": "Cartella", "dimensione": 5}, 200
         else:
             body, code = {"detail": "Kodi non collegato"}, 401
         data = json.dumps(body).encode()
@@ -41,6 +43,11 @@ def test_chiave_e_parametri(server):
     films = XdccApi(server + "/", key="segreta").latest_films()
     assert films == [{"id": "RLD:a.mkv"}]
     assert seen == [("/xdcc/api/novita?tipo=film", "segreta")]
+
+
+def test_cancella(server):
+    assert XdccApi(server, key="segreta").delete("server:Cartella/Film.mkv")["cancellato"] == "Cartella"
+    assert seen == [("/xdcc/api/cancella?id=server%3ACartella%2FFilm.mkv", "segreta")]  # _timeout non è un parametro
 
 
 def test_errore_del_server(server):

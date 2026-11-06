@@ -26,7 +26,7 @@ class XdccApi:
         self.key = key
         self.timeout = timeout
 
-    def get(self, path, **params):
+    def get(self, path, _timeout=None, **params):
         """GET path?params -> dizionario JSON. ApiError con il messaggio del server se risponde con un errore."""
         url = self.base + path
         if params:
@@ -35,7 +35,7 @@ class XdccApi:
         if self.key:
             request.add_header("X-Api-Key", self.key)
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with urllib.request.urlopen(request, timeout=_timeout or self.timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             raise ApiError(e.code, _detail(e)) from None
@@ -72,6 +72,11 @@ class XdccApi:
 
     def on_server(self):
         return self.get("/server")["film"]
+
+    def delete(self, item_id):
+        """Cancella un film della lista "server" (se sta in una cartella, tutta la cartella), per tutti: come il
+        cestino su Telegram. Può aspettare che finisca un pezzo in copia sul cloud: più tempo delle altre."""
+        return self.get("/cancella", _timeout=120, id=item_id)
 
     # --- guardare ---
 

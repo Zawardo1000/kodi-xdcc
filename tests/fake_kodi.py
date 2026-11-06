@@ -61,7 +61,7 @@ class Dialog:
         calls.append(("ok", message))
         return True
 
-    def yesno(self, heading, message):
+    def yesno(self, heading, message, **labels):  # nolabel, yeslabel
         calls.append(("yesno", message))
         return answers["yesno"]
 

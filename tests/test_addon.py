@@ -81,6 +81,31 @@ def test_guarda_annullato_ferma_il_download(addon, monkeypatch):
     assert ("cancel", "j1") in api.requests and plugin("setResolvedUrl")[0][1][1] is False
 
 
+def test_elimina_dal_menu_della_pressione_lunga(addon, monkeypatch):
+    film = dict(FILM, id="server:Hellfire.2026.mkv")
+    folder = dict(FILM, id="server:Ballistic/Ballistic.mkv", titolo="Ballistic 2025 · 3,9 GB")
+    api = FakeApi(on_server=[[film, folder]],
+                  delete=[{"cancellato": "Hellfire.2026.mkv", "dimensione": 1_700_000_000},
+                          ApiError(409, "È in download: non si può cancellare adesso")])
+    monkeypatch.setattr(addon, "client", lambda with_key=True: api)
+    addon.router("?azione=server")
+    items = plugin("addDirectoryItems")[0][1][1]
+    (label, command), = items[0][1].props["menu"]
+    assert label == "Elimina" and command.startswith("RunPlugin(plugin://plugin.video.xdcc/?azione=elimina&id=server%3AHellfire")
+    params = command[len("RunPlugin("):-1].split("?", 1)[1]
+    addon.router(params)  # alla conferma "No": niente
+    assert not [r for r in api.requests if r[0] == "delete"] and "Hellfire 2026 · 1,6 GB" in plugin("yesno")[-1][1]
+    fake_kodi.answers["yesno"] = True
+    addon.router(params)
+    assert ("delete", "server:Hellfire.2026.mkv") in api.requests
+    assert ("notification", "Cancellato (1,6 GB)") in fake_kodi.calls and ("builtin", "Container.Refresh") in fake_kodi.calls
+    # un film in una cartella: la conferma lo dice; se il server rifiuta, il suo messaggio
+    addon.router(items[1][1].props["menu"][0][1][len("RunPlugin("):-1].split("?", 1)[1])
+    assert "Si cancella tutta la cartella Ballistic." in plugin("yesno")[-1][1]
+    assert ("ok", "È in download: non si può cancellare adesso") in fake_kodi.calls
+    assert plugin("builtin")[-1] == ("builtin", "Dialog.Close(busydialognocancel)")  # niente attesa che resta aperta
+
+
 def test_chiave_non_valida_propone_di_ricollegare(addon, monkeypatch):
     monkeypatch.setattr(addon, "client", lambda with_key=True: FakeApi(latest_films=ApiError(401, "Kodi non collegato")))
     addon.router("?azione=film_novita")

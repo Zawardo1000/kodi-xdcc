@@ -8,7 +8,8 @@ Percorsi (plugin://plugin.video.xdcc/?azione=...):
 - serie&q=...                  stagioni della serie (o subito gli episodi, se la stagione è una)
 - stagione&q=...&n=...         episodi di una stagione
 - cerca&tipo=film|serie        tastiera, poi risultati
-- server                       file già sul server
+- server                       file già sul server (pressione lunga: Elimina)
+- elimina&id=...&titolo=...    chiede conferma e cancella dal server un film della lista "server", per tutti
 - guarda&id=...                fa partire (o si aggancia a) il download e apre il video appena può
 - trailer&v=...                il trailer (YouTube) nell'app scelta nelle impostazioni (Android)
 - collega                      abbinamento con Telegram (anche dal pulsante nelle impostazioni)
@@ -242,6 +243,35 @@ def playable(entry):
                     "season": entry.get("stagione"), "episode": entry.get("episodio"), **card_info(entry)})
     set_art(item, entry)
     return plugin_url(azione="guarda", id=entry["id"]), item, False
+
+
+def deletable(listed, entry):
+    """Un film della lista "server" con la voce Elimina nel menu della pressione lunga."""
+    url, item, is_folder = listed
+    command = f"RunPlugin({plugin_url(azione='elimina', id=entry['id'], titolo=entry['titolo'])})"
+    item.addContextMenuItems([("Elimina", command)])
+    return url, item, is_folder
+
+
+def delete(item_id, label):
+    """Elimina (dal menu della pressione lunga): conferma, cancella sul server e aggiorna la lista. Un film dentro
+    una cartella (più file, sottotitoli...) se ne va con tutta la cartella, come da Telegram."""
+    path = item_id.partition(":")[2]
+    text = f"Cancellare [B]{label}[/B]?\nSparisce per tutti, anche da Telegram."
+    if "/" in path:
+        text += f"\nSi cancella tutta la cartella {path.split('/')[0]}."
+    if not xbmcgui.Dialog().yesno(TITLE, lines(text), nolabel="No", yeslabel="Elimina"):
+        return
+    xbmc.executebuiltin("ActivateWindow(busydialognocancel)")
+    try:
+        done = client().delete(item_id)
+    except ApiError as e:
+        xbmc.executebuiltin("Dialog.Close(busydialognocancel)")
+        show_error(e)
+        return
+    xbmc.executebuiltin("Dialog.Close(busydialognocancel)")
+    xbmcgui.Dialog().notification(TITLE, f"Cancellato ({size_text(done.get('dimensione') or 0)})")
+    xbmc.executebuiltin("Container.Refresh")
 
 
 def end(items, content="videos"):
@@ -486,6 +516,9 @@ def router(paramstring):
     if action == "trailer":
         play_trailer(params.get("v", ""))
         return
+    if action == "elimina":  # RunPlugin dal menu: niente cartella da chiudere
+        delete(params["id"], params.get("titolo") or params["id"].partition(":")[2])
+        return
     if action == "collega":
         pair()
         if HANDLE >= 0:  # dal menu (cartella); dalle impostazioni arriva senza handle
@@ -503,7 +536,7 @@ def router(paramstring):
         elif action == "cerca":
             search(params.get("tipo", "film"))
         elif action == "server":
-            end([playable(e) for e in with_cards(client().on_server())], "movies")
+            end([deletable(playable(e), e) for e in with_cards(client().on_server())], "movies")
         else:
             main_menu()
     except ApiError as e:
